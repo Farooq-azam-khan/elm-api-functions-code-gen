@@ -381,6 +381,9 @@ def write_elm_fns(url):
         print(f"is {url} running?")
 
 
-if __name__ == "__main__":
+def main():
     cli.add_command(write_elm_fns)
     cli()
+
+
+# if __name__ == "__main__":

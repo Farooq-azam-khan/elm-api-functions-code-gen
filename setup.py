@@ -25,6 +25,6 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
         ],
         entry_points="""
         [console_scripts]
-        elm_openapi_codegen=get_all_routes:cli
+        elm_openapi_codegen=get_all_routes:main
     """,
     )
