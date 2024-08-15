@@ -120,33 +120,11 @@ def create_api_functions(apis: dict[Any, Any]):
             )
             elm_fn_definition_dict["args"] = args
             elm_fn_definition_dict["args_names"] = args_names
-            elm_route = elm_fn_definition_dict["fn_body"]["route"]
-
-            # if "parameters" in method_vals:
-            #     parameters = method_vals["parameters"]
-            #     route_path = route.split("/")
-            #     print(f"\tparameters (total={len(parameters)}):", parameters)
-            #     for rp in route_path:
-            #         if "{" in rp and "}" in rp:
-            #             for url_param in parameters:
-            #                 if url_param["in"] == "path":
-            #                     if (
-            #                         rp.replace("{", "").replace("}", "")
-            #                         == url_param["name"]
-            #                     ):
-            #                         elm_route = elm_route.replace(
-            #                             rp, f"\"++ {url_param['name']} ++\""
-            #                         )
-            #                         elm_fn_definition_dict["args"].insert(0, "String")
-            #                         elm_fn_definition_dict["args_names"].insert(
-            #                             0, url_param["name"]
-            #                         )
-            #     elm_route = elm_route.replace('++""', "")
             elm_route, args, args_names = add_url_parameters_to_fn(
                 method_vals,
                 elm_fn_definition_dict["args"],
                 elm_fn_definition_dict["args_names"],
-                elm_route,
+                elm_fn_definition_dict["fn_body"]["route"],
                 route,
             )
             elm_fn_definition_dict["fn_body"]["route"] = elm_route
@@ -154,13 +132,13 @@ def create_api_functions(apis: dict[Any, Any]):
             print(colored(elm_fn_definition_dict, "red"))
             formatted_fn_output = format_api_fn(
                 elm_fn_definition_dict,
-                # elm_route,
                 method,
                 elm_request_encoder,
             )
 
             if "requestBody" in method_vals:
                 print("requestBody=", method_vals["requestBody"])
+
             if "responses" in method_vals:
                 happy_path = method_vals["responses"]["200"]
                 print("\tresponses=")

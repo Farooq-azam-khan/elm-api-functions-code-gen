@@ -58,14 +58,3 @@ def test_fn_url_param_output():
     assert len(args) == 1
     assert args[0] == "String"
     assert elm_route == '"/api/db/question/"++ uuid'
-
-
-#     fn_with_url_param = """
-# question_record_api_db_question__uuid__get : uuid -> String -> (WebData a -> msg) -> D.Decoder a -> Cmd msg
-# question_record_api_db_question__uuid__get uuid String (WebData a -> msg) D.Decoder a =
-#     "/api/db/question/"++ uuid
-#         |> HttpBuilder.get
-#         |> HttpBuilder.withTimeout 90000
-#         |> HttpBuilder.withExpect
-#             (Http.expectJson (RemoteData.fromResult >> msg) decoder)
-#         |> HttpBuilder.request""".strip()
