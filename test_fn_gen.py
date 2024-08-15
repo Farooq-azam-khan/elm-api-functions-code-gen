@@ -5,19 +5,21 @@ def test_fn_definition_outputs_correct_string_output():
     elm_fn_definition_dict = {
         "fn_name": "mode_api_mode_get",
         "args": ["(WebData a -> msg)", "D.Decoder a"],
-        "args_names": ["(WebData a -> msg)", "D.Decoder a"],
+        "args_names": ["msg", "decoder"],
         "output_arg": "Cmd msg",
         "fn_body": {
             "route": '"/api/mode"',
             "http_method": "get",
             "http_builder_fns": [
-                "\t/api/mode\t\t|> HttpBuilder.get\t\t|> HttpBuilder.withTimeout 90000\t\t|> HttpBuilder.withExpect\n\t\t\t(Http.expectJson (RemoteData.fromResult >> msg) decoder)\t\t|> HttpBuilder.request"
+                "        |> HttpBuilder.withTimeout 90000",
+                "        |> HttpBuilder.withExpect\n            (Http.expectJson (RemoteData.fromResult >> msg) decoder)",
+                "        |> HttpBuilder.request",
             ],
         },
     }
     elm_fn_str = """
 mode_api_mode_get : (WebData a -> msg) -> D.Decoder a -> Cmd msg
-mode_api_mode_get (WebData a -> msg) D.Decoder a =
+mode_api_mode_get msg decoder =
     "/api/mode"
         |> HttpBuilder.get
         |> HttpBuilder.withTimeout 90000

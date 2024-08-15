@@ -9,6 +9,7 @@ apis = resp.json()
 
 
 skip_non_api_routes = True
+tab = "    "
 
 
 def add_encoder_to_fn(method_vals, elm_fn_definition_dict):
@@ -16,10 +17,11 @@ def add_encoder_to_fn(method_vals, elm_fn_definition_dict):
     args_names = elm_fn_definition_dict["args_names"]
     elm_request_encoder = ""
     if "requestBody" in method_vals:
+        print("requestBody=", method_vals["requestBody"])
         args = ["E.Value"] + args
         args_names = ["request_body_encoder"] + args_names
         elm_request_encoder = (
-            "\n        |> HttpBuilder.withJsonBody request_body_encoder"
+            f"{tab}{tab}|> HttpBuilder.withJsonBody request_body_encoder"
         )
         # TODO: create encoder based on apis['components']['schemas']
     return args, args_names, elm_request_encoder
@@ -34,15 +36,18 @@ def format_api_fn(
     elm_fn_arguments = f'{elm_fn_definition_dict["fn_name"]} {" ".join(elm_fn_definition_dict["args_names"])} ='
     elm_route = elm_fn_definition_dict["fn_body"]["route"]
     method = elm_fn_definition_dict["fn_body"]["http_method"]
+
+    elm_fn_body_http_fns = "\n".join(
+        elm_fn_definition_dict["fn_body"]["http_builder_fns"]
+    )
+
+    print(colored(f"{elm_fn_body_http_fns=}", "red"))
     formatted_fn_output = f"""
 {elm_fn_definition}
 {elm_fn_arguments}
-    {elm_route}
-        |> HttpBuilder.{method}{elm_request_encoder}
-        |> HttpBuilder.withTimeout 90000
-        |> HttpBuilder.withExpect
-            (Http.expectJson (RemoteData.fromResult >> msg) decoder)
-        |> HttpBuilder.request
+{tab}{elm_route}
+{tab}{tab}|> HttpBuilder.{method}
+{elm_fn_body_http_fns}
 """.strip()
     return formatted_fn_output
 
@@ -109,15 +114,19 @@ def create_api_functions(apis: dict[Any, Any]):
                     "route": '"' + route + '"',
                     "http_method": method,
                     "http_builder_fns": [
-                        "\t\t|> HttpBuilder.withTimeout 90000"
-                        "\t\t|> HttpBuilder.withExpect\n\t\t\t(Http.expectJson (RemoteData.fromResult >> msg) decoder)"
-                        "\t\t|> HttpBuilder.request"
+                        f"{tab}{tab}|> HttpBuilder.withTimeout 90000",
+                        f"{tab}{tab}|> HttpBuilder.withExpect\n{tab}{tab}{tab}(Http.expectJson (RemoteData.fromResult >> msg) decoder)",
+                        f"{tab}{tab}|> HttpBuilder.request",
                     ],
                 },
             }
             args, args_names, elm_request_encoder = add_encoder_to_fn(
                 method_vals, elm_fn_definition_dict
             )
+            if len(elm_request_encoder) > 0:
+                elm_fn_definition_dict["fn_body"]["http_builder_fns"].insert(
+                    0, elm_request_encoder
+                )
             elm_fn_definition_dict["args"] = args
             elm_fn_definition_dict["args_names"] = args_names
             elm_route = elm_fn_definition_dict["fn_body"]["route"]
@@ -134,13 +143,10 @@ def create_api_functions(apis: dict[Any, Any]):
             print(colored(elm_fn_definition_dict, "red"))
             formatted_fn_output = format_api_fn(
                 elm_fn_definition_dict,
-                # elm_route,
                 method,
                 elm_request_encoder,
             )
 
-            if "requestBody" in method_vals:
-                print("requestBody=", method_vals["requestBody"])
             if "responses" in method_vals:
                 happy_path = method_vals["responses"]["200"]
                 print("\tresponses=")
