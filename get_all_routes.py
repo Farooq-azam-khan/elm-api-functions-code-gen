@@ -1,5 +1,6 @@
 from typing import Any
 
+import click
 import requests
 from termcolor import colored
 
@@ -354,10 +355,22 @@ module ApiGen exposing(..)
         f.write(file_content)
 
 
-if __name__ == "__main__":
+@click.group()
+def cli():
+    pass
+
+
+@click.command()
+@click.option(
+    "-u",
+    "--url",
+    default=local_openapi_json,
+    type=str,
+    help=f"Location of the openapi.json file (e.g. {local_openapi_json})",
+)
+def write_elm_fns(url):
     try:
-        open_api_json_req_url = local_openapi_json
-        apis = get_openapi_config(open_api_json_req_url)
+        apis = get_openapi_config(url)
         elm_functions = create_api_functions(apis)
         write_http_fns_file(
             elm_functions,
@@ -365,4 +378,9 @@ if __name__ == "__main__":
             open_api_version=apis["openapi"],
         )
     except requests.exceptions.ConnectionError:
-        print(f"is {open_api_json_req_url} running?")
+        print(f"is {url} running?")
+
+
+if __name__ == "__main__":
+    cli.add_command(write_elm_fns)
+    cli()
