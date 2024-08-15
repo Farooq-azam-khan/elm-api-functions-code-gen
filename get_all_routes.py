@@ -55,7 +55,7 @@ def add_url_parameters_to_fn(
     route,
 ):
     if "parameters" not in method_vals:
-        return elm_route
+        return elm_route, args, args_names
 
     parameters = method_vals["parameters"]
     route_path = route.split("/")
@@ -120,11 +120,13 @@ def create_api_functions(apis: dict[Any, Any]):
             )
             elm_fn_definition_dict["args"] = args
             elm_fn_definition_dict["args_names"] = args_names
+            elm_route = elm_fn_definition_dict["fn_body"]["route"]
+
             elm_route, args, args_names = add_url_parameters_to_fn(
                 method_vals,
                 elm_fn_definition_dict["args"],
                 elm_fn_definition_dict["args_names"],
-                elm_fn_definition_dict["fn_body"]["route"],
+                elm_route,
                 route,
             )
             elm_fn_definition_dict["fn_body"]["route"] = elm_route
@@ -132,13 +134,13 @@ def create_api_functions(apis: dict[Any, Any]):
             print(colored(elm_fn_definition_dict, "red"))
             formatted_fn_output = format_api_fn(
                 elm_fn_definition_dict,
+                # elm_route,
                 method,
                 elm_request_encoder,
             )
 
             if "requestBody" in method_vals:
                 print("requestBody=", method_vals["requestBody"])
-
             if "responses" in method_vals:
                 happy_path = method_vals["responses"]["200"]
                 print("\tresponses=")
