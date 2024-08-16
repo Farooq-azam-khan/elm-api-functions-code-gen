@@ -377,6 +377,7 @@ def write_elm_fns(url):
             output_file="./codegen/ApiGen.elm",
             open_api_version=apis["openapi"],
         )
+        return apis, elm_functions
     except requests.exceptions.ConnectionError:
         print(f"is {url} running?")
 
@@ -386,5 +387,5 @@ def main():
     cli()
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    apis= get_openapi_config(local_openapi_json)
