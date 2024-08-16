@@ -114,12 +114,7 @@ def create_api_functions(apis: dict[Any, Any]):
         )
     )
     print(colored("Assume url param name is a valid elm variable", "red"))
-    # TODO: create a dict that stores function name.
-    # TODO: if there is a duplicate then make sure to tell user and add random 4 letter digit to it at the end.
-    # elm_functions = []
     elm_functions = {}
-    # [{fn_name: str, args_names:[str], args:[str], fn_body: [str], output_arg: str}]
-    # fn_body is list of http builder functions
     for route, methods in apis["paths"].items():
         if skip_non_api_routes and not route.startswith("/api"):
             print(f"skipping {route=}")
@@ -193,7 +188,7 @@ python_type_to_elm_encoder_type = {
 
 
 def write_encoders(apis):
-    encoder_fns = []
+    encoder_fns = {}
     for tpe, tpe_props in apis["components"]["schemas"].items():
         if tpe_props["type"] == "object":
             elm_properties = []
@@ -333,23 +328,31 @@ import RemoteData exposing (RemoteData(..))
 
 
 def write_http_fns_file(
-    elm_functions: list[Any], output_file: str, open_api_version: str
+        elm_functions: list[Any], elm_types: list[str]=[], output_file: str='./codegen/ApiGen.elm', open_api_version: str='3.1.0'
 ) -> None:
     print(colored("writing file", "green"))
     print(colored(f"writing {len(elm_functions)} api functions", "green"))
     functions_str = "\n\n".join(
         [elm_fn_formatted for _, elm_fn_formatted in elm_functions.items()]
     )
+
+    elm_types_str = '\n\n'.join(elm_types)
     file_content = f"""
 module ApiGen exposing(..)
 -- GENRATED FOR OPENAPI={open_api_version}
 
 {elm_imports}
 
+-- Api Types
+{elm_types_str}
+
+-- Api Functions
 {elm_expect_fastpai_fn_and_types}
 
 {functions_str}
     """.strip()
+
+
 
     with open(output_file, "w") as f:
         f.write(file_content)
@@ -386,6 +389,76 @@ def main():
     cli.add_command(write_elm_fns)
     cli()
 
+def convert_to_elm_data_type(json_type: str): 
+    if json_type == 'string': 
+        return 'String' 
+    elif json_type == 'integer': 
+        return 'Int'
+    elif json_type == 'boolean': 
+        return 'Bool' 
+    elif json_type == 'float': 
+        return 'Float'
+    elif json_type == 'array': 
+        return 'List a'
+    return 'UNKN' 
+
+def write_elm_type(schema: dict[str, Any]) -> str: 
+    print(colored(f'schema keys={schema.keys()}', 'yellow'))
+    type_prefix = 'Api'
+    elm_type_args_dict = {}
+    for prop_name, prop_metadata in schema['properties'].items():
+        print(prop_name, '===', prop_metadata)
+        if 'type' in prop_metadata: 
+            prop_type = prop_metadata['type']
+
+            elm_prop_type = convert_to_elm_data_type(prop_type)
+            if prop_type == 'array' and 'type' in prop_metadata['items']: 
+                list_type = convert_to_elm_data_type(prop_metadata["items"]["type"])
+                elm_prop_type = f'List {list_type}'
+            elif prop_type == 'array' and '$ref' in prop_metadata['items']: 
+                # assume type alias for ref is created 
+                reference = prop_metadata['items']['$ref'].split('/')[-1]
+                ref_type_name = f'{type_prefix}{reference}'
+                elm_prop_type = f'List {ref_type_name}'
+        elif '$ref' in prop_metadata:
+            reference = prop_metadata['$ref'].split('/')[-1]
+            ref_type_name = f'{type_prefix}{reference}'
+            elm_prop_type = f'{ref_type_name}'
+
+        elm_type_args_dict[prop_name] = elm_prop_type
+
+
+        
+    elm_type_args = '{' + ', '.join([f'{p}:{pt}' for p,pt in elm_type_args_dict.items()]) + '}'
+
+
+    return f'''type alias {type_prefix}{schema["title"]} = {elm_type_args}\n'''.strip()
+
+def generate_all_elm_types(schemas: dict[Any, Any]):
+    print(colored('Assume every property is required', 'red'))
+    print(colored('Assume pyton class name and elm type alias names are the same structure', 'red'))
+    all_elm_type_alias = []  
+    for schema_name, schema_props in schemas.items(): 
+        elm_type_alias = write_elm_type(schema_props)
+        print(colored(elm_type_alias, 'green'))
+        print('-'*20)
+        all_elm_type_alias.append(elm_type_alias)
+    return all_elm_type_alias 
 
 if __name__ == "__main__":
-    apis= get_openapi_config(local_openapi_json)
+    apis = get_openapi_config(local_openapi_json)
+    #elm_functions = create_api_functions(apis)
+    '''write_http_fns_file(
+            elm_functions,
+            elm_types=generate_all_elm_types(apis['components']['schemas']), 
+            output_file="./codegen/ApiGen.elm",
+            open_api_version=apis["openapi"],
+    )'''
+
+    #elm_schema_types = write_all_elm_types(apis['components']['schemas'])
+    #encoders = write_encoders(apis)
+    # TODO: write stuff for the following type items: 'anyOf'
+    answer_type = write_elm_type(apis['components']['schemas']['ValidationError'])
+    #answer_type = write_elm_type(apis['components']['schemas']['Meta'])
+    #sources_schema = apis['components']['schemas']['Sources']
+    print(answer_type)
