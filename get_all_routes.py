@@ -287,7 +287,7 @@ expect_fast_api_response : (Result FastApiHttpError value -> msg) -> D.Decoder v
 expect_fast_api_response to_msg decoder =
     Http.expectStringResponse
         to_msg
-        (\response ->
+        (\\response ->
             case response of
                 Http.BadUrl_ url ->
                     Err <| BadUrl url
@@ -358,6 +358,8 @@ module ApiGen exposing(..)
         f.write(file_content)
 
 
+# TODO: add argument for output file path
+# TODO: add strict argument with default being true  and a warning stating: "only disable if you do not control your backend code"
 @click.group()
 def cli():
     pass
@@ -402,21 +404,57 @@ def convert_to_elm_data_type(json_type: str):
         return 'List a'
     return 'UNKN' 
 
-def write_elm_type(schema: dict[str, Any]) -> str: 
+elm_reserved_keywards = {'and', 'as', 'case', 'else', 'if', 'in', 'let', 'of', 'then', 'type', 'where', 'with', 'module', 'import', 'exposing', 'port', 'effect', 'command', 'subscription', 'program'}
+
+def generate_elm_prop_name(prop_name):
+    if prop_name in elm_reserved_keywards:
+        return f'{prop_name}_'
+    return prop_name 
+
+# e.g. List String
+# e.g. List (List String) or List (List (String))
+def recursive_type_gen(items, prefix):
+    if items['type'] == 'array': 
+        return recursive_type_gen(items['items'], prefix=prefix+'List (')+')'
+    
+    elm_prop_type = convert_to_elm_data_type(items["type"])
+    return f'{prefix} {elm_prop_type} )' 
+
+def generate_elm_type_alias(schema: dict[str, Any]) -> str: 
+    all_elm_union_types = [] 
+    # TODO: this will need to be a recursive function eventually
     print(colored(f'schema keys={schema.keys()}', 'yellow'))
     type_prefix = 'Api'
     elm_type_args_dict = {}
     for prop_name, prop_metadata in schema['properties'].items():
         print(prop_name, '===', prop_metadata)
+        elm_prop_name = generate_elm_prop_name(prop_name)
         if 'type' in prop_metadata: 
             prop_type = prop_metadata['type']
-
             elm_prop_type = convert_to_elm_data_type(prop_type)
-            if prop_type == 'array' and 'type' in prop_metadata['items']: 
-                list_type = convert_to_elm_data_type(prop_metadata["items"]["type"])
-                elm_prop_type = f'List {list_type}'
+
+            if prop_type == 'array':
+                if 'type' in prop_metadata['items']:
+                    elm_recursed_type_gen = recursive_type_gen(prop_metadata['items'], prefix='List (')
+                    #list_type = convert_to_elm_data_type(prop_metadata["items"]["type"])
+                    elm_prop_type = elm_recursed_type_gen
+                elif 'anyOf' in prop_metadata['items']:
+                    elm_union_type_name = f'UT_{elm_prop_name}'
+                    # TODO: generate a union type and insert it into type array 
+                    union_types = [] 
+                    for i, ut in enumerate(prop_metadata['items']['anyOf']):
+                        if 'type' in ut:
+                            elm_ut_arg = convert_to_elm_data_type(ut['type'])
+                            union_types.append(f'UTArg{i} {elm_ut_arg}')
+
+                    union_type_gen = f'type {elm_union_type_name}\n{tab}= '
+                    union_type_gen += f'\n{tab}| '.join(union_types)
+                    all_elm_union_types.append(union_type_gen)
+                    elm_prop_type = f'List {elm_union_type_name}'
+
+                    
             elif prop_type == 'array' and '$ref' in prop_metadata['items']: 
-                # assume type alias for ref is created 
+                # assume type alias for ref is created - might not even need topological sort - elm compiler could handle it for me
                 reference = prop_metadata['items']['$ref'].split('/')[-1]
                 ref_type_name = f'{type_prefix}{reference}'
                 elm_prop_type = f'List {ref_type_name}'
@@ -425,21 +463,28 @@ def write_elm_type(schema: dict[str, Any]) -> str:
             ref_type_name = f'{type_prefix}{reference}'
             elm_prop_type = f'{ref_type_name}'
 
-        elm_type_args_dict[prop_name] = elm_prop_type
+        elm_type_args_dict[elm_prop_name] = elm_prop_type
 
 
-        
-    elm_type_args = '{' + ', '.join([f'{p}:{pt}' for p,pt in elm_type_args_dict.items()]) + '}'
+    elm_type_args_tuple = [(k,v) for k,v in elm_type_args_dict.items()]
+    first_type_arg = elm_type_args_tuple[0]
 
+    elm_type_args = '{ ' + f'{first_type_arg[0]}: {first_type_arg[1]}\n'
+    if len(elm_type_args_tuple) >= 2:
+        elm_type_args += f'{tab}, '
+        elm_type_args += f'{tab}, '.join([f'{p}: {pt}\n' for p,pt in elm_type_args_tuple[1:]])
+    elm_type_args += tab + '}'
 
-    return f'''type alias {type_prefix}{schema["title"]} = {elm_type_args}\n'''.strip()
+    all_elm_union_types_str = '\n\n'.join(all_elm_union_types)
+
+    return f'''{all_elm_union_types_str}\n\ntype alias {type_prefix}{schema["title"]} =\n{tab}{elm_type_args}\n'''.strip()
 
 def generate_all_elm_types(schemas: dict[Any, Any]):
     print(colored('Assume every property is required', 'red'))
     print(colored('Assume pyton class name and elm type alias names are the same structure', 'red'))
     all_elm_type_alias = []  
     for schema_name, schema_props in schemas.items(): 
-        elm_type_alias = write_elm_type(schema_props)
+        elm_type_alias = generate_elm_type_alias(schema_props)
         print(colored(elm_type_alias, 'green'))
         print('-'*20)
         all_elm_type_alias.append(elm_type_alias)
@@ -447,18 +492,23 @@ def generate_all_elm_types(schemas: dict[Any, Any]):
 
 if __name__ == "__main__":
     apis = get_openapi_config(local_openapi_json)
-    #elm_functions = create_api_functions(apis)
-    '''write_http_fns_file(
+    '''
+    elm_functions = create_api_functions(apis)
+    write_http_fns_file(
             elm_functions,
             elm_types=generate_all_elm_types(apis['components']['schemas']), 
-            output_file="./codegen/ApiGen.elm",
+            output_file="./codegen/src/ApiGen.elm",
             open_api_version=apis["openapi"],
-    )'''
+    )
+    '''
 
     #elm_schema_types = write_all_elm_types(apis['components']['schemas'])
     #encoders = write_encoders(apis)
     # TODO: write stuff for the following type items: 'anyOf'
-    answer_type = write_elm_type(apis['components']['schemas']['ValidationError'])
+    #answer_type = generate_elm_type_alias(apis['components']['schemas']['ValidationError'])
+    #print(answer_type)
+    #print('-'*10)
     #answer_type = write_elm_type(apis['components']['schemas']['Meta'])
     #sources_schema = apis['components']['schemas']['Sources']
-    print(answer_type)
+    #answer_type = generate_elm_type_alias(apis['components']['schemas']['Text2Query'])
+    #print(answer_type)
