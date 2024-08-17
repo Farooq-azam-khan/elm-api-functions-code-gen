@@ -405,7 +405,7 @@ def convert_to_elm_data_type(json_type: str):
         return 'Int'
     elif json_type == 'boolean': 
         return 'Bool' 
-    elif json_type == 'float': 
+    elif json_type == 'float' or json_type == 'number':
         return 'Float'
     elif json_type == 'array': 
         return 'List UNKN'
@@ -427,13 +427,23 @@ def recursive_type_gen(items, prefix):
     elm_prop_type = convert_to_elm_data_type(items["type"])
     return f'{prefix} {elm_prop_type} )' 
 
+def generate_encoder(a, b):
+    print(f'{a=} {b=}')
+    return ''
 def generate_elm_type_alias(schema: dict[str, Any]) -> str: 
     all_elm_union_types = [] 
     # TODO: this will need to be a recursive function eventually
     print(colored(f'schema keys={schema.keys()}', 'yellow'))
+    print(colored(f'required={schema.get("required")}', 'yellow'))
+    required = [k for k,_ in schema['properties'].items()]
+    if 'required' in schema: 
+        required = schema['required']
+    required = set(required) 
+
     type_prefix = 'Api'
     elm_type_args_dict = {}
     for prop_name, prop_metadata in schema['properties'].items():
+        is_required = prop_name in required
         print(prop_name, '===', prop_metadata)
         elm_prop_name = generate_elm_prop_name(prop_name)
         if 'type' in prop_metadata: 
@@ -469,8 +479,11 @@ def generate_elm_type_alias(schema: dict[str, Any]) -> str:
             reference = prop_metadata['$ref'].split('/')[-1]
             ref_type_name = f'{type_prefix}{reference}'
             elm_prop_type = f'{ref_type_name}'
+        if is_required:
+            elm_type_args_dict[elm_prop_name] = elm_prop_type
+        else: 
+            elm_type_args_dict[elm_prop_name] = f'Maybe ({elm_prop_type})'
 
-        elm_type_args_dict[elm_prop_name] = elm_prop_type
 
 
     elm_type_args_tuple = [(k,v) for k,v in elm_type_args_dict.items()]
@@ -504,16 +517,20 @@ if __name__ == "__main__":
             elm_types=generate_all_elm_types(apis['components']['schemas']), 
             output_file="./codegen/src/ApiGen.elm",
             open_api_version=apis["openapi"],
+            info=apis['info']
     )
 
-    #elm_schema_types = write_all_elm_types(apis['components']['schemas'])
     #encoders = write_encoders(apis)
-    # TODO: write stuff for the following type items: 'anyOf'
     #answer_type = generate_elm_type_alias(apis['components']['schemas']['ValidationError'])
     #print(answer_type)
     #print('-'*10)
     #answer_type = write_elm_type(apis['components']['schemas']['Meta'])
-    sources_schema = apis['components']['schemas']['Sources']
-    answer_type = generate_elm_type_alias(sources_schema)
-    #answer_type = generate_elm_type_alias(apis['components']['schemas']['Text2Query'])
-    print(answer_type)
+    #sources_schema = apis['components']['schemas']['Sources']
+    #answer_type = generate_elm_type_alias(sources_schema)
+    #t2q_schema = apis['components']['schemas']['Text2Query']
+    #t2q = generate_elm_type_alias(t2q_schema)
+    #print(colored(t2q, 'green'))
+    #generate_encoder(t2q, t2q_schema)
+    #answer_type = generate_elm_type_alias(apis['components']['schemas']['LLMExecute'])
+    #print(answer_type)
+    #generate_all_elm_types(apis['components']['schemas'])
