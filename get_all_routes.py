@@ -104,6 +104,47 @@ def create_response_type(method_vals):
                         )
                     )
 
+def create_api_function(route: str, method: str, method_vals: dict[Any, Any]) -> Any:
+    operation_id = method_vals["operationId"]
+    print(colored(f"{operation_id=} ", "yellow"))
+    print("keys=", method_vals.keys())
+    elm_fn_definition_dict = {
+        "fn_name": operation_id,
+        "args": ["(FastApiWebData a -> msg)", "D.Decoder a"],
+        "args_names": ["msg", "decoder"],
+        "output_arg": "Cmd msg",
+        "fn_body": {
+            "route": '"' + route + '"',
+            "http_method": method,
+            "http_builder_fns": [
+                f"{tab}{tab}|> HttpBuilder.withTimeout 90000",
+                f"{tab}{tab}|> HttpBuilder.withExpect\n{tab}{tab}{tab}(expect_fast_api_response (RemoteData.fromResult >> msg) decoder)",
+                f"{tab}{tab}|> HttpBuilder.request",
+            ],
+        },
+    }
+    args, args_names, elm_request_encoder = add_encoder_to_fn(
+        method_vals, elm_fn_definition_dict
+    )
+    if len(elm_request_encoder) > 0:
+        elm_fn_definition_dict["fn_body"]["http_builder_fns"].insert(
+            0, elm_request_encoder
+        )
+    elm_fn_definition_dict["args"] = args
+    elm_fn_definition_dict["args_names"] = args_names
+    elm_route = elm_fn_definition_dict["fn_body"]["route"]
+
+    elm_route, args, args_names = add_url_parameters_to_fn(
+        method_vals,
+        elm_fn_definition_dict["args"],
+        elm_fn_definition_dict["args_names"],
+        elm_route,
+        route,
+    )
+    elm_fn_definition_dict["fn_body"]["route"] = elm_route
+
+
+    return elm_fn_definition_dict
 
 def create_api_functions(apis: dict[Any, Any]):
     print(colored("Assuming everyting is content-type: application/json", "red"))
@@ -123,6 +164,7 @@ def create_api_functions(apis: dict[Any, Any]):
         print(colored(f"{route=}", "yellow"))
 
         for method, method_vals in methods.items():
+            '''
             operation_id = method_vals["operationId"]
             print(colored(f"{operation_id=} ", "yellow"))
             print("keys=", method_vals.keys())
@@ -160,7 +202,8 @@ def create_api_functions(apis: dict[Any, Any]):
                 route,
             )
             elm_fn_definition_dict["fn_body"]["route"] = elm_route
-
+            '''
+            elm_fn_definition_dict = create_api_function(route, method, method_vals)
             # print(colored(elm_fn_definition_dict, "red"))
             formatted_fn_output = format_api_fn(
                 elm_fn_definition_dict,
