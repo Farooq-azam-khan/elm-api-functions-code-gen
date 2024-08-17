@@ -333,7 +333,7 @@ import RemoteData exposing (RemoteData(..))
 
 
 def write_http_fns_file(
-        elm_functions: list[Any], elm_types: list[str]=[], output_file: str='./codegen/ApiGen.elm', open_api_version: str='3.1.0'
+        elm_functions: list[Any], elm_types: list[str]=[], output_file: str='./codegen/ApiGen.elm', open_api_version: str='3.1.0', info:dict={}
 ) -> None:
     print(colored("writing file", "green"))
     print(colored(f"writing {len(elm_functions)} api functions", "green"))
@@ -346,6 +346,7 @@ def write_http_fns_file(
     file_content = f"""
 module ApiGen exposing(..)
 -- GENRATED FOR OPENAPI={open_api_version}
+-- INFO={info}
 
 {elm_imports}
 
