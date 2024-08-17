@@ -427,9 +427,27 @@ def recursive_type_gen(items, prefix):
     elm_prop_type = convert_to_elm_data_type(items["type"])
     return f'{prefix} {elm_prop_type} )' 
 
-def generate_encoder(a, b):
-    print(f'{a=} {b=}')
-    return ''
+def generate_encoder(elm_t_name, elm_t_props, elm_t_union_types):
+    print(elm_t_props)
+    encoder_fn_def = {'fn_name': f'{elm_t_name.replace(type_prefix, "api_").lower()}_encoder', 'args': [elm_t_name, 'E.Value'], 
+                      'args_names': ['v'], 'fn_body': {
+                          'encoder_list': [(f'"{elm_prop_name}"',f'E.string v.{elm_prop_name}') for elm_prop_name, _ in elm_t_props.items()]
+                            
+                          }}
+    return encoder_fn_def 
+
+def format_elm_encoder_fn(encoder_fn_def):
+    print(colored(encoder_fn_def, 'red'))
+    fn_args = ' -> '.join(encoder_fn_def['args'])
+    fn_args_names = ' '.join(encoder_fn_def['args_names'])
+    encoder_list = '[' + ', '.join([f'({prop_name}, {prop_val})' for prop_name, prop_val in encoder_fn_def['fn_body']['encoder_list']]) + ']'
+
+    return f'''
+{encoder_fn_def["fn_name"]} : {fn_args}
+{encoder_fn_def["fn_name"]} {fn_args_names} = E.object {encoder_list}
+'''.strip()
+
+type_prefix = 'Api'
 def generate_elm_type_alias(schema: dict[str, Any]) -> str: 
     all_elm_union_types = [] 
     # TODO: this will need to be a recursive function eventually
@@ -440,7 +458,6 @@ def generate_elm_type_alias(schema: dict[str, Any]) -> str:
         required = schema['required']
     required = set(required) 
 
-    type_prefix = 'Api'
     elm_type_args_dict = {}
     for prop_name, prop_metadata in schema['properties'].items():
         is_required = prop_name in required
@@ -483,8 +500,10 @@ def generate_elm_type_alias(schema: dict[str, Any]) -> str:
             elm_type_args_dict[elm_prop_name] = elm_prop_type
         else: 
             elm_type_args_dict[elm_prop_name] = f'Maybe ({elm_prop_type})'
+    elm_type_name = f'{type_prefix}{schema["title"]}'
+    return elm_type_name, elm_type_args_dict, all_elm_union_types
 
-
+def format_elm_types(elm_type_name, elm_type_args_dict: dict[str, Any], all_elm_union_types: str) -> str: 
 
     elm_type_args_tuple = [(k,v) for k,v in elm_type_args_dict.items()]
     first_type_arg = elm_type_args_tuple[0]
@@ -497,14 +516,17 @@ def generate_elm_type_alias(schema: dict[str, Any]) -> str:
 
     all_elm_union_types_str = '\n\n'.join(all_elm_union_types)
 
-    return f'''{all_elm_union_types_str}\n\ntype alias {type_prefix}{schema["title"]} =\n{tab}{elm_type_args}\n'''.strip()
+    return f'''{all_elm_union_types_str}\n\ntype alias {elm_type_name} =\n{tab}{elm_type_args}\n'''.strip()
+
+
 
 def generate_all_elm_types(schemas: dict[Any, Any]):
     print(colored('Assume every property is required', 'red'))
     print(colored('Assume pyton class name and elm type alias names are the same structure', 'red'))
     all_elm_type_alias = []  
     for schema_name, schema_props in schemas.items(): 
-        elm_type_alias = generate_elm_type_alias(schema_props)
+        elm_type_name, elm_type_props_dict, all_elm_union_types = generate_elm_type_alias(schema_props)
+        elm_type_alias = format_elm_types(elm_type_name, elm_type_props_dict, all_elm_union_types)
         print(colored(elm_type_alias, 'green'))
         print('-'*20)
         all_elm_type_alias.append(elm_type_alias)
@@ -512,13 +534,13 @@ def generate_all_elm_types(schemas: dict[Any, Any]):
 
 if __name__ == "__main__":
     apis = get_openapi_config(local_openapi_json)
-    write_http_fns_file(
+    '''write_http_fns_file(
             create_api_functions(apis), 
             elm_types=generate_all_elm_types(apis['components']['schemas']), 
             output_file="./codegen/src/ApiGen.elm",
             open_api_version=apis["openapi"],
             info=apis['info']
-    )
+    )'''
 
     #encoders = write_encoders(apis)
     #answer_type = generate_elm_type_alias(apis['components']['schemas']['ValidationError'])
@@ -527,10 +549,9 @@ if __name__ == "__main__":
     #answer_type = write_elm_type(apis['components']['schemas']['Meta'])
     #sources_schema = apis['components']['schemas']['Sources']
     #answer_type = generate_elm_type_alias(sources_schema)
-    #t2q_schema = apis['components']['schemas']['Text2Query']
-    #t2q = generate_elm_type_alias(t2q_schema)
-    #print(colored(t2q, 'green'))
-    #generate_encoder(t2q, t2q_schema)
     #answer_type = generate_elm_type_alias(apis['components']['schemas']['LLMExecute'])
-    #print(answer_type)
+    t2q_schema = apis['components']['schemas']['Text2Query']
+    elm_t2q_name, elm_t2q_props, elm_t2q_union_types = generate_elm_type_alias(t2q_schema)
+    encoder_fn = format_elm_encoder_fn(generate_encoder(elm_t2q_name, elm_t2q_props, elm_t2q_union_types))
+    print(colored(encoder_fn, 'green'))
     #generate_all_elm_types(apis['components']['schemas'])
