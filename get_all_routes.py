@@ -402,7 +402,7 @@ def convert_to_elm_data_type(json_type: str):
     elif json_type == 'float': 
         return 'Float'
     elif json_type == 'array': 
-        return 'List a'
+        return 'List UNKN'
     return 'UNKN' 
 
 elm_reserved_keywards = {'and', 'as', 'case', 'else', 'if', 'in', 'let', 'of', 'then', 'type', 'where', 'with', 'module', 'import', 'exposing', 'port', 'effect', 'command', 'subscription', 'program'}
