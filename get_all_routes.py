@@ -335,8 +335,9 @@ def write_http_fns_file(
     functions_str = "\n\n".join(
         [elm_fn_formatted for _, elm_fn_formatted in elm_functions.items()]
     )
-
-    elm_types_str = '\n\n'.join(elm_types)
+    
+    unknown_type = 'type alias UNKN=String' 
+    elm_types_str = unknown_type +'\n\n' + '\n\n'.join(elm_types)
     file_content = f"""
 module ApiGen exposing(..)
 -- GENRATED FOR OPENAPI={open_api_version}
@@ -453,11 +454,11 @@ def generate_elm_type_alias(schema: dict[str, Any]) -> str:
                     elm_prop_type = f'List {elm_union_type_name}'
 
                     
-            elif prop_type == 'array' and '$ref' in prop_metadata['items']: 
-                # assume type alias for ref is created - might not even need topological sort - elm compiler could handle it for me
-                reference = prop_metadata['items']['$ref'].split('/')[-1]
-                ref_type_name = f'{type_prefix}{reference}'
-                elm_prop_type = f'List {ref_type_name}'
+                elif '$ref' in prop_metadata['items']: 
+                    # assume type alias for ref is created - might not even need topological sort - elm compiler could handle it for me
+                    reference = prop_metadata['items']['$ref'].split('/')[-1]
+                    ref_type_name = f'{type_prefix}{reference}'
+                    elm_prop_type = f'List {ref_type_name}'
         elif '$ref' in prop_metadata:
             reference = prop_metadata['$ref'].split('/')[-1]
             ref_type_name = f'{type_prefix}{reference}'
@@ -492,15 +493,12 @@ def generate_all_elm_types(schemas: dict[Any, Any]):
 
 if __name__ == "__main__":
     apis = get_openapi_config(local_openapi_json)
-    '''
-    elm_functions = create_api_functions(apis)
     write_http_fns_file(
-            elm_functions,
+            create_api_functions(apis), 
             elm_types=generate_all_elm_types(apis['components']['schemas']), 
             output_file="./codegen/src/ApiGen.elm",
             open_api_version=apis["openapi"],
     )
-    '''
 
     #elm_schema_types = write_all_elm_types(apis['components']['schemas'])
     #encoders = write_encoders(apis)
@@ -509,6 +507,7 @@ if __name__ == "__main__":
     #print(answer_type)
     #print('-'*10)
     #answer_type = write_elm_type(apis['components']['schemas']['Meta'])
-    #sources_schema = apis['components']['schemas']['Sources']
+    sources_schema = apis['components']['schemas']['Sources']
+    answer_type = generate_elm_type_alias(sources_schema)
     #answer_type = generate_elm_type_alias(apis['components']['schemas']['Text2Query'])
-    #print(answer_type)
+    print(answer_type)
