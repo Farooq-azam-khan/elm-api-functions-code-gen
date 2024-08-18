@@ -426,7 +426,7 @@ def convert_to_elm_data_type(json_type: str):
     return 'UNKN' 
 
 elm_reserved_keywards = {'and', 'as', 'case', 'else', 'if', 'in', 'let', 'of', 'then', 'type', 'where', 'with', 'module', 'import', 'exposing', 'port', 'effect', 'command', 'subscription', 'program'}
-
+open_bracket, close_bracket = '(', ')'
 def generate_elm_prop_name(prop_name):
     if prop_name in elm_reserved_keywards:
         return f'{prop_name}_'
