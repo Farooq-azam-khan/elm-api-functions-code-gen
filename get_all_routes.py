@@ -436,10 +436,16 @@ def generate_elm_prop_name(prop_name):
 # e.g. List (List String) or List (List (String))
 def recursive_type_gen(items, prefix):
     if items['type'] == 'array': 
-        return recursive_type_gen(items['items'], prefix=prefix+'List (')+')'
+        return recursive_type_gen(items['items'], prefix=prefix+f'List {open_bracket}') + close_bracket
     
     elm_prop_type = convert_to_elm_data_type(items["type"])
-    return f'{prefix} {elm_prop_type} )' 
+    return f'{prefix} {elm_prop_type} {close_bracket}'
+
+def elm_encoder_recursive_type_gen(items, prefix):
+    if items['type'] == 'array': 
+        return elm_encoder_recursive_type_gen(items['items'], prefix = prefix + f'E.list {open_bracket}') + close_bracket
+    elm_encoder_type = convert_to_elm_encoder_type(items['type'])
+    return f'{prefix} {elm_encoder_type} {close_bracket}'
 
 def generate_encoder(elm_t_name, elm_t_props, elm_t_union_types):
     print(elm_t_props)
@@ -450,17 +456,6 @@ def generate_encoder(elm_t_name, elm_t_props, elm_t_union_types):
                           }}
     return encoder_fn_def 
 
-def format_elm_encoder_fn(encoder_fn_def):
-    print(colored(encoder_fn_def, 'red'))
-    fn_args = ' -> '.join(encoder_fn_def['args'])
-    fn_args_names = ' '.join(encoder_fn_def['args_names'])
-    encoder_list = '[' + ', '.join([f'({prop_name}, {prop_val})' for prop_name, prop_val in encoder_fn_def['fn_body']['encoder_list']]) + ']'
-
-    return f'''
-{encoder_fn_def["fn_name"]} : {fn_args}
-{encoder_fn_def["fn_name"]} {fn_args_names} = E.object {encoder_list}
-'''.strip()
-
 type_prefix = 'Api'
 '''
 schema keys=dict_keys(['properties', 'type', 'required', 'title'])
@@ -469,7 +464,7 @@ columns === {'items': {'type': 'string'}, 'type': 'array', 'title': 'Columns'}
 data === {'items': {'items': {'type': 'string'}, 'type': 'array'}, 'type': 'array', 'title': 'Data'}
 query === {'type': 'string', 'title': 'Query'}
 query_explination === {'type': 'string', 'title': 'Query Explination', 'default': ''}
-ApiText2Query
+ApiText1Query
 []
 {'columns': 'List ( String )', 'data': 'List (List ( String ))', 'query': 'String', 'query_explination': 'Maybe (String)'}
 
@@ -501,8 +496,8 @@ Type
 
 --       i.e. {"columns": [...], "data": [..], "query": ".."} or {"columns": [...], "data": [..], "query": "..", "query_explination": null} 
 --      this will depend on how the backend service takes "query_explination". If it want a string but the default value is "" and it gets a null, then it might pose a problem
-api_text2query_encoder : ApiText2Query -> E.Value
-api_text2query_encoder ta = 
+api_text1query_encoder : ApiText2Query -> E.Value
+api_text1query_encoder ta = 
     E.object 
         [ ("columns", E.list E.string ta.columns)
         , ("data",E.list (E.list E.string) ta.data )
@@ -511,6 +506,12 @@ api_text2query_encoder ta =
         ]
 
 '''
+
+def generate_elm_maybe_type(type0, type1):
+    if type0 == 'null':
+        return f'Maybe ({convert_to_elm_data_type(type1)})'
+    return f'Maybe ({convert_to_elm_data_type(type0)})' 
+
 def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str: 
     all_elm_union_types = [] 
     print(colored(f'schema keys={schema.keys()}', 'yellow'))
@@ -521,19 +522,32 @@ def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str:
     required = set(required) 
 
     elm_type_args_dict = {}
+    elm_type_name = f'{type_prefix}{schema["title"]}'
+    elm_encoder_fn_def = {'fn_name': f'{elm_type_name.replace(type_prefix, "api_").lower()}_encoder', 
+        'args': [elm_type_name], 
+        'args_output': 'E.Value',
+        'args_names': ['ta'], 
+        'fn_body': {
+         'encoder_list': []
+    }}
+    
     for prop_name, prop_metadata in schema['properties'].items():
         is_required = prop_name in required
         print(prop_name, '===', prop_metadata)
         elm_prop_name = generate_elm_prop_name(prop_name)
+        elm_encoder_tuple = [f'"{elm_prop_name}"', 'E.string "TODO"']
         if 'type' in prop_metadata: 
             prop_type = prop_metadata['type']
+            print(f'{prop_type=}')
             elm_prop_type = convert_to_elm_data_type(prop_type)
 
             if prop_type == 'array':
                 if 'type' in prop_metadata['items']:
-                    elm_recursed_type_gen = recursive_type_gen(prop_metadata['items'], prefix='List (')
+                    elm_recursed_type_gen = recursive_type_gen(prop_metadata['items'], prefix=f'List {open_bracket}')
+                    elm_rtg_encoder = elm_encoder_recursive_type_gen(prop_metadata['items'], prefix=f'E.list {open_bracket}')
                     #list_type = convert_to_elm_data_type(prop_metadata["items"]["type"])
                     elm_prop_type = elm_recursed_type_gen
+                    elm_encoder_tuple[1] = elm_rtg_encoder + f' ta.{elm_prop_name}'
                 elif 'anyOf' in prop_metadata['items']:
                     elm_union_type_name = f'UT_{elm_prop_name}'
                     # TODO: generate a union type and insert it into type array 
@@ -547,6 +561,7 @@ def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str:
                     union_type_gen += f'\n{tab}| '.join(union_types)
                     all_elm_union_types.append(union_type_gen)
                     elm_prop_type = f'List {elm_union_type_name}'
+                    elm_encoder_tuple[1] = elm_rtg_encoder + f'ta.{elm_prop_name}'
 
                     
                 elif '$ref' in prop_metadata['items']: 
@@ -558,13 +573,38 @@ def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str:
             reference = prop_metadata['$ref'].split('/')[-1]
             ref_type_name = f'{type_prefix}{reference}'
             elm_prop_type = f'{ref_type_name}'
+        elif  'anyOf' in prop_metadata and len(prop_metadata) == 2:
+            type0 = prop_metadata['anyOf'][0]['type']
+            type1 = prop_metadata['anyOf'][1]['type']
+            if (type0 == 'null' or type1 == 'null'):
+                # Optional type used 
+                print(colored('generating Optional Type', 'yellow'))
+                elm_prop_type = generate_elm_maybe_type(type0, type1) 
+            else: 
+                print(colored('TODO: account for anyOf length > 2', 'red'))
+                elm_prop_type = 'UNKN'
+        else: 
+            print(f'proptye not found for {prop_name=}') 
+            elm_prop_type = 'UNKN' 
         if is_required:
             elm_type_args_dict[elm_prop_name] = elm_prop_type
         else: 
-            elm_type_args_dict[elm_prop_name] = f'Maybe ({elm_prop_type})'
-    elm_type_name = f'{type_prefix}{schema["title"]}'
-    return elm_type_name, elm_type_args_dict, all_elm_union_types
+            # TODO: figure out what to do with default values 
+            elm_type_args_dict[elm_prop_name] = f'{elm_prop_type}'
+        elm_encoder_fn_def['fn_body']['encoder_list'].append(elm_encoder_tuple)
+    return elm_type_name, elm_type_args_dict, all_elm_union_types, elm_encoder_fn_def
 
+
+def format_elm_encoder_fn(encoder_fn_def):
+    fn_args = ' -> '.join(encoder_fn_def['args'])
+    fn_args_names = ' '.join(encoder_fn_def['args_names'])
+    encoder_list = '[' + ', '.join([f'({prop_name}, {prop_val})' for prop_name, prop_val in encoder_fn_def['fn_body']['encoder_list']]) + ']'
+
+    return f'''
+{encoder_fn_def["fn_name"]} : {fn_args} -> {encoder_fn_def["args_output"]}
+{encoder_fn_def["fn_name"]} {fn_args_names} = 
+{tab} E.object {encoder_list}
+'''.strip()
 
 def generate_elm_type_alias(schema: dict[str, Any]) -> str: 
     all_elm_union_types = [] 
@@ -669,8 +709,23 @@ if __name__ == "__main__":
     #answer_type = generate_elm_type_alias(sources_schema)
     #answer_type = generate_elm_type_alias(apis['components']['schemas']['LLMExecute'])
     t2q_schema = apis['components']['schemas']['Text2Query']
-    elm_t2q_name, elm_t2q_props, elm_t2q_union_types = generate_elm_type_and_encoder_fn(t2q_schema)
-    print(colored(elm_t2q_name, 'green'))
-    print(colored(elm_t2q_union_types, 'green'))
-    print(colored(elm_t2q_props, 'green'))
+    elm_t2q_name, elm_t2q_props, elm_t2q_union_types, elm_encoder_fn_def = generate_elm_type_and_encoder_fn(t2q_schema)
+    formatted_types = format_elm_types(elm_t2q_name, elm_t2q_props, elm_t2q_union_types)
+    print(colored(elm_t2q_name, 'blue'))
+    print(colored(elm_t2q_union_types, 'blue'))
+    print(colored(elm_t2q_props, 'blue'))
+    print(colored(elm_encoder_fn_def, 'blue'))
+    print(colored(formatted_types, 'green'))
+    print(colored(format_elm_encoder_fn(elm_encoder_fn_def), 'green'))
+    print('-'*10)
+    t2q_schema = apis['components']['schemas']['OptionalTest']
+    elm_t2q_name, elm_t2q_props, elm_t2q_union_types, elm_encoder_fn_def  = generate_elm_type_and_encoder_fn(t2q_schema)
+    formatted_types = format_elm_types(elm_t2q_name, elm_t2q_props, elm_t2q_union_types)
+    print(colored(elm_t2q_name, 'blue'))
+    print(colored(elm_t2q_union_types, 'blue'))
+    print(colored(elm_t2q_props, 'blue'))
+    print(colored(elm_encoder_fn_def, 'blue'))
+    print(colored(formatted_types, 'green'))
+    print(colored(format_elm_encoder_fn(elm_encoder_fn_def), 'green'))
+    print('-'*10)
     #generate_all_elm_types(apis['components']['schemas'])
