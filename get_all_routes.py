@@ -104,7 +104,7 @@ def create_response_type(method_vals):
                         )
                     )
 
-def generate_elm_api_function(route: str, method: str, method_vals: dict[Any, Any]) -> Any:
+def generate_elm_api_function(route: str, method: str, method_vals: dict[Any, Any]) -> dict[Any, Any]:
     operation_id = method_vals["operationId"]
     print(colored(f"{operation_id=} ", "yellow"))
     print("keys=", method_vals.keys())
@@ -732,6 +732,12 @@ def generate_all_elm_types(schemas: dict[Any, Any]):
 if __name__ == "__main__":
     apis = get_openapi_config(local_openapi_json)
     elm_types, elm_encoder_fns = generate_all_elm_types(apis['components']['schemas'])
+    route = '/api/db/question/{q_uuid}/record-query'
+    method = 'put'
+
+    fn_dict = generate_elm_api_function(route, method, apis['paths'][route][method])  
+    print(colored(format_api_fn(fn_dict, method, ''), 'green'))
+    '''
     write_http_fns_file(
             create_api_functions(apis), 
             elm_types=elm_types, elm_encoder_fns=elm_encoder_fns,  
@@ -739,70 +745,5 @@ if __name__ == "__main__":
             open_api_version=apis["openapi"],
             info=apis['info']
     )
-    #encoders = write_encoders(apis)
-    #answer_type = generate_elm_type_alias(apis['components']['schemas']['ValidationError'])
-    #print(answer_type)
-    #print('-'*10)
-    #answer_type = write_elm_type(apis['components']['schemas']['Meta'])
-    #sources_schema = apis['components']['schemas']['Sources']
-    #answer_type = generate_elm_type_alias(sources_schema)
-    #answer_type = generate_elm_type_alias(apis['components']['schemas']['LLMExecute'])
     '''
-    t2q_schema = apis['components']['schemas']['Text2Query']
-    elm_t2q_name, elm_t2q_props, elm_t2q_union_types, elm_encoder_fn_def = generate_elm_type_and_encoder_fn(t2q_schema)
-    formatted_types = format_elm_types(elm_t2q_name, elm_t2q_props, elm_t2q_union_types)
-    print(colored(elm_t2q_name, 'blue'))
-    print(colored(elm_t2q_union_types, 'blue'))
-    print(colored(elm_t2q_props, 'blue'))
-    print(colored(elm_encoder_fn_def, 'blue'))
-    print(colored(formatted_types, 'green'))
-    print(colored(format_elm_encoder_fn(elm_encoder_fn_def), 'green'))
-    print('-'*10)
-    t2q_schema = apis['components']['schemas']['OptionalTest']
-    elm_t2q_name, elm_t2q_props, elm_t2q_union_types, elm_encoder_fn_def  = generate_elm_type_and_encoder_fn(t2q_schema)
-    formatted_types = format_elm_types(elm_t2q_name, elm_t2q_props, elm_t2q_union_types)
-    print(colored(elm_t2q_name, 'blue'))
-    print(colored(elm_t2q_union_types, 'blue'))
-    print(colored(elm_t2q_props, 'blue'))
-    print(colored(elm_encoder_fn_def, 'blue'))
-    print(colored(formatted_types, 'green'))
-    print(colored(format_elm_encoder_fn(elm_encoder_fn_def), 'green'))
-    print('-'*10)
-
-    t2q_schema = apis['components']['schemas']['Sources']
-    elm_t2q_name, elm_t2q_props, elm_t2q_union_types, elm_encoder_fn_def  = generate_elm_type_and_encoder_fn(t2q_schema)
-    formatted_types = format_elm_types(elm_t2q_name, elm_t2q_props, elm_t2q_union_types)
-    print(colored(elm_t2q_name, 'blue'))
-    print(colored(elm_t2q_union_types, 'blue'))
-    print(colored(elm_t2q_props, 'blue'))
-    print(colored(elm_encoder_fn_def, 'blue'))
-    print(colored(formatted_types, 'green'))
-    print(colored(format_elm_encoder_fn(elm_encoder_fn_def), 'green'))
-    print('-'*10)
-    '''
-    '''
-    t2q_schema = apis['components']['schemas']['ValidationError']
-    elm_t2q_name, elm_t2q_props, elm_t2q_union_types, elm_encoder_fn_def, all_elm_union_encoders = generate_elm_type_and_encoder_fn(t2q_schema)
-    formatted_types = format_elm_types(elm_t2q_name, elm_t2q_props, elm_t2q_union_types)
-    print(colored(elm_t2q_name, 'blue'))
-    print(colored(elm_t2q_union_types, 'blue'))
-    print(colored(elm_t2q_props, 'blue'))
-    print(colored(elm_encoder_fn_def, 'blue'))
-    print(colored(formatted_types, 'green'))
-    print(colored(format_elm_encoder_fn(elm_encoder_fn_def), 'green'))
-    print(colored('\n\n'.join([format_elm_encoder_fn(ute) for ute in all_elm_union_encoders]), 'green'))
-    print('-'*10)
-    '''
-    #generate_all_elm_types(apis['components']['schemas'])
-    t2q_schema = apis['components']['schemas']['Text2QueryAndSchema']
-    elm_t2q_name, elm_t2q_props, elm_t2q_union_types, elm_encoder_fn_def, all_elm_union_encoders = generate_elm_type_and_encoder_fn(t2q_schema)
-    formatted_types = format_elm_types(elm_t2q_name, elm_t2q_props, elm_t2q_union_types)
-    print(colored(elm_t2q_name, 'blue'))
-    print(colored(elm_t2q_union_types, 'blue'))
-    print(colored(elm_t2q_props, 'blue'))
-    print(colored(elm_encoder_fn_def, 'blue'))
-    print(colored(formatted_types, 'green'))
-    print(colored(format_elm_encoder_fn(elm_encoder_fn_def), 'green'))
-    print(colored('\n\n'.join([format_elm_encoder_fn(ute) for ute in all_elm_union_encoders]), 'green'))
-    print('-'*10)
 
