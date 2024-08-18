@@ -398,6 +398,20 @@ def main():
     cli.add_command(write_elm_fns)
     cli()
 
+def convert_to_elm_encoder_type(json_type: str): 
+    if json_type == 'string': 
+        return 'E.string' 
+    elif json_type == 'integer': 
+        return 'E.int'
+    elif json_type == 'boolean': 
+        return 'E.bool' 
+    elif json_type == 'float' or json_type == 'number':
+        return 'E.float'
+    elif json_type == 'array': 
+        return 'E.list (E.string)'
+    return 'E.string "UNKN"' 
+
+
 def convert_to_elm_data_type(json_type: str): 
     if json_type == 'string': 
         return 'String' 
