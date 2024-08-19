@@ -4,7 +4,13 @@
     * generate the types afterwards 
     * generated types can have encoder and decoder 
     * these encoder and decoder will be used in conjuction with api functions. 
-
+* create an example directory with a very complex and thourough api backend 
+    * uses basic get 
+    * uses get with query parameters 
+    * uses post 
+    * has auth routes 
+    * put requests 
+    * advanced validation 
 * create better input into elm api function i.e. 
     * `E.Value` is too generic and is not helpful. 
     * `msg` type can be removed if an action type is created e.g. `type ApiAction a = RecordUserInput (FastApiWebData a)`
