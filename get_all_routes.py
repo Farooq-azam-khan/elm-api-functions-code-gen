@@ -34,7 +34,6 @@ def add_encoder_to_fn(method_vals, elm_fn_definition_dict):
         if schema_name:
             elm_type_alias = get_type_alias_from_schema_ref(schema_name)
             elm_encoder_fn_name = generate_elm_encoder_fn_name(elm_type_alias)
-            print(colored(f'TODO: rewrite fn to use this {elm_type_alias}', 'yellow'))
             args = [elm_type_alias] + args 
             args_names = ['req_body'] + args_names
             elm_request_encoder = f'{tab}{tab}|> HttpBuilder.withJsonBody ({elm_encoder_fn_name} req_body)'
@@ -98,7 +97,34 @@ def add_url_parameters_to_fn(
     elm_route = elm_route.replace('++""', "").strip()
     return elm_route, args, args_names
 
+'''
+-- DECODER FUNCTIONS FORMAT
+ut_loc_decoder : D.Decoder UT_loc 
+ut_loc_decoder =
+    D.oneOf 
+        [ D.map UTArg0 D.string
+        , D.map UTArg1 D.int 
+        ]
 
+
+api_validationerror_decoder : D.Decoder ApiValidationError
+api_validationerror_decoder =
+    D.succeed ApiValidationError 
+        |> JDP.required "loc" (D.list ut_loc_decoder)
+        |> JDP.required "msg" (D.string)
+        |> JDP.required "type" (D.string)
+
+
+type alias ApiHTTPValidationError =
+    { detail: List ApiValidationError
+    }
+
+
+api_httpvalidationerror_decoder : D.Decoder ApiHTTPValidationError 
+api_httpvalidationerror_decoder = 
+    D.succeed ApiHTTPValidationError 
+        |> JDP.required "detail" (D.list api_validationerror_decoder)'
+'''
 def create_response_type(method_vals):
     if "responses" in method_vals:
         responses = method_vals["responses"]
@@ -111,23 +137,9 @@ def create_response_type(method_vals):
                 ]
                 schemas_count = len(response_content_schema.keys())
                 if schemas_count == 0:
-                    print(
-                        colored(
-                            "\tWARN: schema response not defined",
-                            "yellow",
-                        )
-                    )
-'''
-test_optional_vs_default_api_test_optional_post : ApiOptionalTest -> (FastApiWebData a -> msg) -> D.Decoder a -> Cmd msg
-test_optional_vs_default_api_test_optional_post req_body msg decoder =
-    "/api/test/optional"
-        |> HttpBuilder.post
-        |> HttpBuilder.withJsonBody (api_optionaltest_encoder req_body) 
-        |> HttpBuilder.withTimeout 90000
-        |> HttpBuilder.withExpect
-            (expect_fast_api_response (RemoteData.fromResult >> msg) decoder)
-        |> HttpBuilder.request
-'''
+                    print(colored("\tWARN: schema response not defined", "yellow",))
+
+
 def generate_elm_api_function(route: str, method: str, method_vals: dict[Any, Any]) -> dict[Any, Any]:
     operation_id = method_vals["operationId"]
     print(colored(f"{operation_id=} ", "yellow"))
@@ -166,6 +178,9 @@ def generate_elm_api_function(route: str, method: str, method_vals: dict[Any, An
         elm_route,
         route,
     )
+
+    
+    create_response_type(method_vals)
     elm_fn_definition_dict["fn_body"]["route"] = elm_route
     elm_fn_definition_dict['args'] = args 
     elm_fn_definition_dict['args_names'] = args_names
@@ -197,7 +212,6 @@ def create_api_functions(apis: dict[Any, Any]):
                 method,
                 "",
             )
-            create_response_type(method_vals)
 
             print(colored(formatted_fn_output, "green"))
             if elm_fn_definition["fn_name"] in elm_functions:
@@ -764,11 +778,11 @@ if __name__ == "__main__":
 
     fn_dict = generate_elm_api_function(route, method, apis['paths'][route][method])  
     print(colored(format_api_fn(fn_dict, method, ''), 'green'))
-    write_http_fns_file(
+    '''write_http_fns_file(
             create_api_functions(apis), 
             elm_types=elm_types, elm_encoder_fns=elm_encoder_fns,  
             output_file="./codegen/src/ApiGen.elm",
             open_api_version=apis["openapi"],
             info=apis['info']
-    )
+    )'''
 
