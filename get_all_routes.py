@@ -310,6 +310,7 @@ elm_imports = """
 import Http
 import HttpBuilder
 import Json.Decode as D
+import Json.Decode.Pipeline as JDP
 import Json.Encode as E
 import RemoteData exposing (RemoteData(..))
 """.strip()
@@ -327,6 +328,7 @@ def write_http_fns_file(
     elm_functions: dict[Any, Any],
     elm_types: list[str] = [],
     elm_encoder_fns: list[str] = [],
+    elm_decoder_fns: list[str] = [], 
     output_file: str = "./codegen/ApiGen.elm",
     open_api_version: str = "3.1.0",
     info: dict = {},
@@ -334,10 +336,12 @@ def write_http_fns_file(
     print(colored("writing file", "green"))
     print(colored(f"writing {len(elm_types)} api types", "blue"))
     print(colored(f"writing {len(elm_encoder_fns)} encoder functions", "blue"))
+    print(colored(f"writing {len(elm_decoder_fns)} decoder functions", "blue"))
     print(colored(f"writing {len(elm_functions)} api functions", "blue"))
+    total = len(elm_types)+len(elm_encoder_fns)+len(elm_functions)
     print(
         colored(
-            f"Total = {len(elm_types)+len(elm_encoder_fns)+len(elm_functions)}", "blue"
+            f"Total = {total}", "blue"
         )
     )
     functions_str = "\n\n".join(
@@ -347,6 +351,7 @@ def write_http_fns_file(
     unknown_type = "type alias UNKN=String"
     elm_types_str = unknown_type + "\n\n" + "\n\n".join(elm_types)
     elm_encoder_fns_str = "\n\n".join(elm_encoder_fns)
+    elm_decoder_fns_str = "\n\n".join(elm_decoder_fns)
     file_content = f"""
 module ApiGen exposing(..)
 -- GENRATED FOR OPENAPI={open_api_version}
@@ -354,14 +359,17 @@ module ApiGen exposing(..)
 
 {elm_imports}
 
--- Helper Fns 
+-- Helper Fns
 {maybe_encoder_fn}
 
 -- Api Types
 {elm_types_str}
 
--- Api Encoder Fns 
+-- Api Encoder Fns
 {elm_encoder_fns_str}
+
+-- Api Decoder Fns
+{elm_decoder_fns_str}
 
 -- Api Functions
 {elm_expect_fastpai_fn_and_types}
@@ -430,7 +438,7 @@ def convert_to_elm_decoder_type(json_type: str):
     elif json_type == "float" or json_type == "number":
         return "D.float"
     elif json_type == "array":
-        return "D.list (E.string)"
+        return "D.list (D.string)"
     return 'D.string'
 
 
@@ -507,6 +515,21 @@ def elm_encoder_recursive_type_gen(items, prefix):
     elm_encoder_type = convert_to_elm_encoder_type(items["type"])
     return f"{prefix} {elm_encoder_type} {close_bracket}"
 
+def elm_decoder_recursive_type_gen(items, prefix):
+    print(colored(f"{items}", "red"))
+    if "type" not in items:
+        return ""
+    if items["type"] == "array":
+        return (
+            elm_decoder_recursive_type_gen(
+                items["items"], prefix=prefix + f"D.list {open_bracket}"
+            )
+            + close_bracket
+        )
+    elm_decoder_type = convert_to_elm_decoder_type(items["type"])
+    return f"{prefix} {elm_decoder_type} {close_bracket}"
+
+
 
 def generate_encoder(elm_t_name, elm_t_props, elm_t_union_types):
     print(elm_t_props)
@@ -564,7 +587,7 @@ def generate_elm_decoder_fn_name(elm_type_name: str) -> str:
     return f'{elm_type_name.replace(type_prefix, "api_").lower()}_decoder'
 
 
-def get_encoder_fn_name_from_schema_ref(schema_ref: str) -> str:
+def generate_encoder_fn_name_from_schema_ref(schema_ref: str) -> str:
     return '' 
 
 
@@ -611,7 +634,7 @@ def generate_elm_type_and_encoder_decoder_fn(
         is_required = prop_name in required
         print(prop_name, "===", prop_metadata)
         elm_prop_name = generate_elm_prop_name(prop_name)
-        elm_encoder_tuple = [f'"{prop_name}"', 'E.string "TODO"']
+        elm_encoder_tuple = [f'"{prop_name}"', 'E.string "UNKN"']
         elm_decoder_tuple = [f'"{prop_name}"', '(D.string)']
 
         if "type" in prop_metadata:
@@ -632,7 +655,7 @@ def generate_elm_type_and_encoder_decoder_fn(
                     # list_type = convert_to_elm_data_type(prop_metadata["items"]["type"])
                     elm_prop_type = elm_recursed_type_gen
                     elm_encoder_tuple[1] = elm_rtg_encoder + f" ta.{elm_prop_name}"
-                    elm_decoder_tuple[1] = 'TODO: recursive decode'
+                    elm_decoder_tuple[1] = elm_decoder_recursive_type_gen(prop_metadata['items'], prefix=f'D.list {open_bracket}')
                 elif "anyOf" in prop_metadata["items"]:
                     elm_union_type_name = f"UT_{elm_prop_name}"
                     # TODO: implement case expression for ut encoder func
@@ -644,6 +667,14 @@ def generate_elm_type_and_encoder_decoder_fn(
                         "args_names": ["ut"],
                         "fn_body": {"encoder_list": [f"{tab}case ut of"]},
                     }
+                    ut_decoder_fn: dict[str, Any] = {
+                        'fn_name': generate_elm_decoder_fn_name(elm_union_type_name),
+                        'args': [], 
+                        'decoder_type': 'union_type', 
+                        'args_output': f'D.Decoder {elm_union_type_name}',
+                        'args_names': [], 
+                        'fn_body': {'decoder_list': []}
+                        }
                     # TODO: generate a union type and insert it into type array
                     union_types = []
                     for i, ut in enumerate(prop_metadata["items"]["anyOf"]):
@@ -652,6 +683,9 @@ def generate_elm_type_and_encoder_decoder_fn(
                             union_types.append(f"UTArg{i} {elm_ut_arg}")
                             ut_encoder_fn["fn_body"]["encoder_list"].append(
                                 f'{tab}{tab}UTArg{i} v -> {convert_to_elm_encoder_type(ut["type"])} v'
+                            )
+                            ut_decoder_fn['fn_body']['decoder_list'].append(
+                                    f'D.map UTArg{i} {convert_to_elm_decoder_type(ut["type"])}'
                             )
 
                     # print(colored(ut_encoder_fn, 'red'))
@@ -662,11 +696,12 @@ def generate_elm_type_and_encoder_decoder_fn(
                     elm_prop_type = f"List {elm_union_type_name}"
 
                     all_elm_union_encoders.append(ut_encoder_fn)
+                    all_elm_union_decoders.append(ut_decoder_fn)
 
                     elm_encoder_tuple[
                         1
                     ] = f'E.list {ut_encoder_fn["fn_name"]} ta.{elm_prop_name}'
-                    elm_decoder_tuple[1] = f'(D.list (TODO_recursve docer))'
+                    elm_decoder_tuple[1] = f'(D.list ({ut_decoder_fn["fn_name"]}))'
 
                 elif "$ref" in prop_metadata["items"]:
                     # assume type alias for ref is created - might not even need topological sort - elm compiler could handle it for me
@@ -680,7 +715,7 @@ def generate_elm_type_and_encoder_decoder_fn(
                     elm_encoder_tuple[
                         1
                     ] = f"E.list ({ref_encoder_fn_name}) ta.{elm_prop_name}"
-                    elm_decoder_tuple[1] = '(D.list (TODO: list ref))'
+                    elm_decoder_tuple[1] = f'(D.list {generate_elm_decoder_fn_name(ref_type_name)})'
         elif "$ref" in prop_metadata:
             reference = prop_metadata["$ref"].split("/")[-1]
             ref_type_name = f"{type_prefix}{reference}"
@@ -690,7 +725,7 @@ def generate_elm_type_and_encoder_decoder_fn(
                 f'{ref_type_name.replace(type_prefix, "api_").lower()}_encoder'
             )
             elm_encoder_tuple[1] = f"{ref_encoder_fn_name} ta.{elm_prop_name}"
-            elm_decoder_tuple[1] = f'TODO: ref decoder fn'
+            elm_decoder_tuple[1] = generate_elm_decoder_fn_name(elm_prop_type) 
         elif "anyOf" in prop_metadata and len(prop_metadata) == 2:
             type0 = prop_metadata["anyOf"][0]["type"]
             type1 = prop_metadata["anyOf"][1]["type"]
@@ -871,15 +906,11 @@ if __name__ == "__main__":
     print('type alias decoder')
     print(colored(format_elm_decoder_fn(f), 'green'))'''
     elm_types, elm_encoder_fns, elm_decoder_fns = generate_all_elm_types(apis["components"]["schemas"])
-    route = "/api/test/optional"
-    method = "post"
 
-    fn_dict = generate_elm_api_function(route, method, apis["paths"][route][method])
-    print(colored(format_api_fn(fn_dict, method, ""), "green"))
-    """write_http_fns_file(
-            create_api_functions(apis), 
-            elm_types=elm_types, elm_encoder_fns=elm_encoder_fns,  
-            output_file="./codegen/src/ApiGen.elm",
-            open_api_version=apis["openapi"],
-            info=apis['info']
-    )"""
+    write_http_fns_file(
+        create_api_functions(apis), 
+        elm_types=elm_types, elm_encoder_fns=elm_encoder_fns, elm_decoder_fns=elm_decoder_fns,
+        output_file="./codegen/src/ApiGen.elm",
+        open_api_version=apis["openapi"],
+        info=apis['info']
+    )
