@@ -18,19 +18,33 @@ def get_openapi_config(
 skip_non_api_routes = True
 # use_fast_api_web_data = True # TODO toggle fastapi webdata
 tab = "    "
-
+type_prefix = 'Api'
+def get_type_alias_from_schema_ref(schema_ref:str)->str:
+    elm_type_alias = f'{type_prefix}{schema_ref.split("/")[-1]}'
+    return elm_type_alias 
 
 def add_encoder_to_fn(method_vals, elm_fn_definition_dict):
     args = elm_fn_definition_dict["args"]
     args_names = elm_fn_definition_dict["args_names"]
     elm_request_encoder = ""
     if "requestBody" in method_vals:
-        print("requestBody=", method_vals["requestBody"])
-        args = ["E.Value"] + args
-        args_names = ["request_body_encoder"] + args_names
-        elm_request_encoder = (
-            f"{tab}{tab}|> HttpBuilder.withJsonBody request_body_encoder"
-        )
+        request_body = method_vals['requestBody']
+        print("requestBody=", request_body)
+        schema_name = request_body.get('content', {}).get('application/json', {}).get('schema',{}).get('$ref')
+        if schema_name:
+            elm_type_alias = get_type_alias_from_schema_ref(schema_name)
+            elm_encoder_fn_name = generate_elm_encoder_fn_name(elm_type_alias)
+            print(colored(f'TODO: rewrite fn to use this {elm_type_alias}', 'yellow'))
+            args = [elm_type_alias] + args 
+            args_names = ['req_body'] + args_names
+            elm_request_encoder = f'{tab}{tab}|> HttpBuilder.withJsonBody ({elm_encoder_fn_name} req_body)'
+        else:
+            print(colored('Using generic encoder argument', 'blue'))
+            args = ["E.Value"] + args
+            args_names = ["request_body_encoder"] + args_names
+            elm_request_encoder = (
+                f"{tab}{tab}|> HttpBuilder.withJsonBody request_body_encoder"
+            )
     return args, args_names, elm_request_encoder
 
 
@@ -103,7 +117,17 @@ def create_response_type(method_vals):
                             "yellow",
                         )
                     )
-
+'''
+test_optional_vs_default_api_test_optional_post : ApiOptionalTest -> (FastApiWebData a -> msg) -> D.Decoder a -> Cmd msg
+test_optional_vs_default_api_test_optional_post req_body msg decoder =
+    "/api/test/optional"
+        |> HttpBuilder.post
+        |> HttpBuilder.withJsonBody (api_optionaltest_encoder req_body) 
+        |> HttpBuilder.withTimeout 90000
+        |> HttpBuilder.withExpect
+            (expect_fast_api_response (RemoteData.fromResult >> msg) decoder)
+        |> HttpBuilder.request
+'''
 def generate_elm_api_function(route: str, method: str, method_vals: dict[Any, Any]) -> dict[Any, Any]:
     operation_id = method_vals["operationId"]
     print(colored(f"{operation_id=} ", "yellow"))
@@ -123,6 +147,7 @@ def generate_elm_api_function(route: str, method: str, method_vals: dict[Any, An
             ],
         },
     }
+
     args, args_names, elm_request_encoder = add_encoder_to_fn(
         method_vals, elm_fn_definition_dict
     )
@@ -478,7 +503,6 @@ def generate_encoder(elm_t_name, elm_t_props, elm_t_union_types):
                           }}
     return encoder_fn_def 
 
-type_prefix = 'Api'
 '''
 type UT_loc 
     = UTArg0 String 
@@ -501,12 +525,15 @@ def generate_elm_maybe_type(type0, type1):
         return f'Maybe ({convert_to_elm_data_type(type1)})'
     return f'Maybe ({convert_to_elm_data_type(type0)})' 
 
+def generate_elm_encoder_fn_name(elm_type_name: str) -> str: 
+    return f'{elm_type_name.replace(type_prefix, "api_").lower()}_encoder'
+
 def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str: 
     all_elm_union_types = [] 
     all_elm_union_encoders = [] 
 
-    print(colored(f'schema keys={schema.keys()}', 'yellow'))
-    print(colored(f'required={schema.get("required")}', 'yellow'))
+    #print(colored(f'schema keys={schema.keys()}', 'yellow'))
+    #print(colored(f'required={schema.get("required")}', 'yellow'))
     required = [k for k,_ in schema['properties'].items()]
     if 'required' in schema: 
         required = schema['required']
@@ -515,7 +542,7 @@ def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str:
     elm_type_args_dict = {}
     elm_type_name = f'{type_prefix}{schema["title"]}'
     elm_encoder_fn_def = {
-        'fn_name': f'{elm_type_name.replace(type_prefix, "api_").lower()}_encoder', 
+        'fn_name': generate_elm_encoder_fn_name(elm_type_name), 
         'args': [elm_type_name], 
         'encoder_type': 'type_alias', 
         'args_output': 'E.Value',
@@ -531,7 +558,7 @@ def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str:
         elm_encoder_tuple = [f'"{prop_name}"', 'E.string "TODO"']
         if 'type' in prop_metadata: 
             prop_type = prop_metadata['type']
-            print(f'{prop_type=}')
+            #print(f'{prop_type=}')
             elm_prop_type = convert_to_elm_data_type(prop_type)
             elm_encoder_tuple[1] = f'{convert_to_elm_encoder_type(prop_type)} ta.{elm_prop_name}'
 
@@ -604,7 +631,7 @@ def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str:
                 print(colored('TODO: account for anyOf length > 2', 'red'))
                 elm_prop_type = 'UNKN'
         else: 
-            print(f'proptye not found for {prop_name=}') 
+            print(colored(f'proptye not found for {prop_name=}', 'red'))
             elm_prop_type = 'UNKN' 
         if is_required:
             elm_type_args_dict[elm_prop_name] = elm_prop_type
@@ -732,8 +759,8 @@ def generate_all_elm_types(schemas: dict[Any, Any]):
 if __name__ == "__main__":
     apis = get_openapi_config(local_openapi_json)
     elm_types, elm_encoder_fns = generate_all_elm_types(apis['components']['schemas'])
-    route = '/api/db/question/{q_uuid}/record-query'
-    method = 'put'
+    route = '/api/test/optional' 
+    method = 'post'
 
     fn_dict = generate_elm_api_function(route, method, apis['paths'][route][method])  
     print(colored(format_api_fn(fn_dict, method, ''), 'green'))
