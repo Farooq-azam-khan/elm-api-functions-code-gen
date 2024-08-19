@@ -44,7 +44,6 @@ def get_type_alias_from_schema_ref(schema_ref: str) -> str:
     elm_type_alias = f'{type_prefix}{schema_ref.split("/")[-1]}'
     return elm_type_alias
 
-
 def add_encoder_to_fn(method_vals, elm_fn_definition_dict):
     args = elm_fn_definition_dict["args"]
     args_names = elm_fn_definition_dict["args_names"]
@@ -421,6 +420,20 @@ def convert_to_elm_encoder_type(json_type: str):
         return "E.list (E.string)"
     return 'E.string "UNKN"'
 
+def convert_to_elm_decoder_type(json_type: str):
+    if json_type == "string":
+        return "D.string"
+    elif json_type == "integer":
+        return "D.int"
+    elif json_type == "boolean":
+        return "D.bool"
+    elif json_type == "float" or json_type == "number":
+        return "D.float"
+    elif json_type == "array":
+        return "D.list (E.string)"
+    return 'D.string'
+
+
 
 def convert_to_elm_data_type(json_type: str):
     if json_type == "string":
@@ -531,6 +544,12 @@ def generate_elm_maybe_encoder(type0, type1):
     return f"maybe_encoder ({convert_to_elm_encoder_type(type0)})"
 
 
+def generate_elm_maybe_decoder(type0, type1):
+    if type0 == "null":
+        return f"D.nullable {convert_to_elm_decoder_type(type1)}"
+    return f"D.nullable {convert_to_elm_decoder_type(type0)}"
+
+
 def generate_elm_maybe_type(type0, type1):
     if type0 == "null":
         return f"Maybe ({convert_to_elm_data_type(type1)})"
@@ -543,6 +562,10 @@ def generate_elm_encoder_fn_name(elm_type_name: str) -> str:
 
 def generate_elm_decoder_fn_name(elm_type_name: str) -> str:
     return f'{elm_type_name.replace(type_prefix, "api_").lower()}_decoder'
+
+
+def get_encoder_fn_name_from_schema_ref(schema_ref: str) -> str:
+    return '' 
 
 
 def generate_elm_type_and_encoder_decoder_fn(
@@ -589,16 +612,14 @@ def generate_elm_type_and_encoder_decoder_fn(
         print(prop_name, "===", prop_metadata)
         elm_prop_name = generate_elm_prop_name(prop_name)
         elm_encoder_tuple = [f'"{prop_name}"', 'E.string "TODO"']
-        elm_decoder_prop = 'TODO' 
+        elm_decoder_tuple = [f'"{prop_name}"', '(D.string)']
 
         if "type" in prop_metadata:
             prop_type = prop_metadata["type"]
             # print(f'{prop_type=}')
             elm_prop_type = convert_to_elm_data_type(prop_type)
-            elm_encoder_tuple[
-                1
-            ] = f"{convert_to_elm_encoder_type(prop_type)} ta.{elm_prop_name}"
-            elm_decoder_prop = 'TODO:base_decode'
+            elm_encoder_tuple[1] = f"{convert_to_elm_encoder_type(prop_type)} ta.{elm_prop_name}"
+            elm_decoder_tuple[1] = f"{convert_to_elm_decoder_type(prop_type)}" 
 
             if prop_type == "array":
                 if "type" in prop_metadata["items"]:
@@ -611,7 +632,7 @@ def generate_elm_type_and_encoder_decoder_fn(
                     # list_type = convert_to_elm_data_type(prop_metadata["items"]["type"])
                     elm_prop_type = elm_recursed_type_gen
                     elm_encoder_tuple[1] = elm_rtg_encoder + f" ta.{elm_prop_name}"
-                    elm_decoder_prop = 'TODO: recursive decode'
+                    elm_decoder_tuple[1] = 'TODO: recursive decode'
                 elif "anyOf" in prop_metadata["items"]:
                     elm_union_type_name = f"UT_{elm_prop_name}"
                     # TODO: implement case expression for ut encoder func
@@ -645,6 +666,7 @@ def generate_elm_type_and_encoder_decoder_fn(
                     elm_encoder_tuple[
                         1
                     ] = f'E.list {ut_encoder_fn["fn_name"]} ta.{elm_prop_name}'
+                    elm_decoder_tuple[1] = f'(D.list (TODO_recursve docer))'
 
                 elif "$ref" in prop_metadata["items"]:
                     # assume type alias for ref is created - might not even need topological sort - elm compiler could handle it for me
@@ -653,13 +675,12 @@ def generate_elm_type_and_encoder_decoder_fn(
                     elm_prop_type = f"List {ref_type_name}"
 
                     # assume encoder function exists. what is the name?
-                    ref_encoder_fn_name = (
-                        f'{ref_type_name.replace(type_prefix, "api_").lower()}_encoder'
-                    )
+                    ref_encoder_fn_name = f'{ref_type_name.replace(type_prefix, "api_").lower()}_encoder'
+                    
                     elm_encoder_tuple[
                         1
                     ] = f"E.list ({ref_encoder_fn_name}) ta.{elm_prop_name}"
-                    elm_decoder_prop = 'TODO: list ref'
+                    elm_decoder_tuple[1] = '(D.list (TODO: list ref))'
         elif "$ref" in prop_metadata:
             reference = prop_metadata["$ref"].split("/")[-1]
             ref_type_name = f"{type_prefix}{reference}"
@@ -669,6 +690,7 @@ def generate_elm_type_and_encoder_decoder_fn(
                 f'{ref_type_name.replace(type_prefix, "api_").lower()}_encoder'
             )
             elm_encoder_tuple[1] = f"{ref_encoder_fn_name} ta.{elm_prop_name}"
+            elm_decoder_tuple[1] = f'TODO: ref decoder fn'
         elif "anyOf" in prop_metadata and len(prop_metadata) == 2:
             type0 = prop_metadata["anyOf"][0]["type"]
             type1 = prop_metadata["anyOf"][1]["type"]
@@ -678,6 +700,7 @@ def generate_elm_type_and_encoder_decoder_fn(
                 elm_prop_type = generate_elm_maybe_type(type0, type1)
                 elm_encoder_type = generate_elm_maybe_encoder(type0, type1)
                 elm_encoder_tuple[1] = f"{elm_encoder_type} ta.{elm_prop_name}"
+                elm_decoder_tuple[1] = generate_elm_maybe_decoder(type0, type1) 
             else:
                 print(colored("TODO: account for anyOf length > 2", "red"))
                 elm_prop_type = "UNKN"
@@ -689,9 +712,9 @@ def generate_elm_type_and_encoder_decoder_fn(
         else:
             # TODO: figure out what to do with default values
             elm_type_args_dict[elm_prop_name] = f"{elm_prop_type}"
-        # print(colored(f'{elm_encoder_tuple=}', 'red'))
         elm_encoder_fn_def["fn_body"]["encoder_list"].append(elm_encoder_tuple)
-    # print(colored(f'{len(all_elm_union_encoders)=}', 'red'))
+        elm_decoder_fn_def['fn_body']['decoder_list'].append(elm_decoder_tuple)
+    
     return (
         elm_type_name,
         elm_type_args_dict, all_elm_union_types,
@@ -731,12 +754,11 @@ api_httpvalidationerror_decoder =
 
 
 def format_elm_decoder_fn(decoder_fn_def: dict[Any, Any]) -> str:
-    #fn_args = " -> ".join(decoder_fn_def["args"])
-    #fn_args_names = " ".join(decoder_fn_def["args_names"])
     if decoder_fn_def["decoder_type"] == "type_alias":
-        decoder_list = f"\n{tab}  D.succeed TODO_DECODER_TYPE" + f"\n{tab}{tab}".join(
+        decoder_type = decoder_fn_def['args_output'].replace('D.Decoder ', '').strip()
+        decoder_list = f"D.succeed {decoder_type}\n{tab}{tab}" + f"\n{tab}{tab}".join(
             [
-                f"|> JDP.required_or_optional \"{prop_name}\" ({prop_val})"
+                f"|> JDP.required {prop_name} ({prop_val})"
                 for prop_name, prop_val in decoder_fn_def["fn_body"]["decoder_list"]
             ]
         )
