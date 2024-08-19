@@ -865,12 +865,11 @@ def generate_all_elm_types(schemas: dict[Any, Any]) -> tuple[list[Any], list[Any
 
 if __name__ == "__main__":
     apis = get_openapi_config(local_openapi_json)
-    a,b,c,d,e,f,g = generate_elm_type_and_encoder_decoder_fn(schema=apis['components']['schemas']['OptionalTest'])
+    '''a,b,c,d,e,f,g = generate_elm_type_and_encoder_decoder_fn(schema=apis['components']['schemas']['OptionalTest'])
     print('union types decoder')
     print(colored('\n\n'.join([format_elm_decoder_fn(d) for d in g]), 'green'))
     print('type alias decoder')
-    print(colored(format_elm_decoder_fn(f), 'green'))
-    '''
+    print(colored(format_elm_decoder_fn(f), 'green'))'''
     elm_types, elm_encoder_fns, elm_decoder_fns = generate_all_elm_types(apis["components"]["schemas"])
     route = "/api/test/optional"
     method = "post"
@@ -884,4 +883,3 @@ if __name__ == "__main__":
             open_api_version=apis["openapi"],
             info=apis['info']
     )"""
-    '''
