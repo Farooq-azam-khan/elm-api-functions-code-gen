@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 
 import click
 import requests
@@ -568,9 +568,13 @@ def generate_elm_encoder_fn_name(elm_type_name: str) -> str:
     return f'{elm_type_name.replace(type_prefix, "api_").lower()}_encoder'
 
 
-def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str:
+def generate_elm_type_and_encoder_fn(
+    schema: dict[str, Any],
+) -> tuple[
+    str, dict[Any, Any], list[str], dict[Any, Any], list[dict[Any, Any]]
+]:  # tuple[Any, Any, Any, Any, Any]:
     all_elm_union_types = []
-    all_elm_union_encoders = []
+    all_elm_union_encoders: list[dict[Any, Any]] = []
 
     # print(colored(f'schema keys={schema.keys()}', 'yellow'))
     # print(colored(f'required={schema.get("required")}', 'yellow'))
@@ -581,7 +585,7 @@ def generate_elm_type_and_encoder_fn(schema: dict[str, Any]) -> str:
 
     elm_type_args_dict = {}
     elm_type_name = f'{type_prefix}{schema["title"]}'
-    elm_encoder_fn_def = {
+    elm_encoder_fn_def: dict[Any, Any] = {
         "fn_name": generate_elm_encoder_fn_name(elm_type_name),
         "args": [elm_type_name],
         "encoder_type": "type_alias",
@@ -733,15 +737,16 @@ def format_elm_encoder_fn(encoder_fn_def):
     """.strip()
 
 
-def generate_elm_type_alias(schema: dict[str, Any]) -> str:
+def generate_elm_type_alias(
+    schema: dict[str, Any],
+) -> tuple[str, dict[Any, Any], list[str]]:
     all_elm_union_types = []
     # TODO: this will need to be a recursive function eventually
     print(colored(f"schema keys={schema.keys()}", "yellow"))
     print(colored(f'required={schema.get("required")}', "yellow"))
-    required = [k for k, _ in schema["properties"].items()]
+    required: set[str] = set([k for k, _ in schema["properties"].items()])
     if "required" in schema:
-        required = schema["required"]
-    required = set(required)
+        required = set(schema["required"])
 
     elm_type_args_dict = {}
     for prop_name, prop_metadata in schema["properties"].items():
@@ -791,7 +796,9 @@ def generate_elm_type_alias(schema: dict[str, Any]) -> str:
 
 
 def format_elm_types(
-    elm_type_name, elm_type_args_dict: dict[str, Any], all_elm_union_types: str
+    elm_type_name: str,
+    elm_type_args_dict: dict[str, Any],
+    all_elm_union_types: list[str],
 ) -> str:
     elm_type_args_tuple = [(k, v) for k, v in elm_type_args_dict.items()]
     first_type_arg = elm_type_args_tuple[0]
@@ -809,7 +816,7 @@ def format_elm_types(
     return f"""{all_elm_union_types_str}\n\ntype alias {elm_type_name} =\n{tab}{elm_type_args}\n""".strip()
 
 
-def generate_all_elm_types(schemas: dict[Any, Any]):
+def generate_all_elm_types(schemas: dict[Any, Any]) -> Any:
     print(colored("Assume every property is required", "red"))
     print(
         colored(
@@ -817,8 +824,8 @@ def generate_all_elm_types(schemas: dict[Any, Any]):
             "red",
         )
     )
-    all_elm_type_alias = []
-    all_elm_encoder_fns = []
+    all_elm_type_alias: list[str] = []
+    all_elm_encoder_fns: list[str] = []
     for schema_name, schema_props in schemas.items():
         print(colored(f"{schema_name=}", "yellow"))
         (
