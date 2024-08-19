@@ -153,13 +153,14 @@ def add_response_type(method_vals: dict[Any, Any], elm_fn_definition_dict: dict[
                 elif is_success_resp_key:
                     # TODO: test for recursive types as well
                     elm_decoder_fn = convert_to_elm_decoder_type(response_content_schema) 
-                    elm_type_name = convert_to_elm_data_type(response_content_schema)
+                    elm_type_name = recursive_type_gen(response_content_schema, f'List {open_bracket}')
                     if '$ref' in response_content_schema:
                         elm_type_name = type_prefix+response_content_schema['$ref'].split('/')[-1]
                         elm_decoder_fn = generate_elm_decoder_fn_name(elm_type_name)
                     
                     add_to_args = [f'(FastApiWebData {elm_type_name} -> msg)']
                     add_to_args_names = ['msg']
+                    print(colored(f'{"-"*10}\n{elm_type_name}\n{"-"*10}\n', 'red'))
                     print(colored(f'\t using schema to add decoder function={elm_decoder_fn}', 'blue'))
                     elm_response_decoder = f'{with_expect_const}(expect_fast_api_response (RemoteData.fromResult >> msg) {elm_decoder_fn})'
 
@@ -514,10 +515,11 @@ def generate_elm_prop_name(prop_name):
         return f"{prop_name}_"
     return prop_name
 
-
 # e.g. List String
 # e.g. List (List String) or List (List (String))
 def recursive_type_gen(items, prefix):
+    if '$ref' in items: 
+        return type_prefix+items['$ref'].split('/')[-1]
     if items["type"] == "array":
         return (
             recursive_type_gen(items["items"], prefix=prefix + f"List {open_bracket}")
@@ -529,7 +531,6 @@ def recursive_type_gen(items, prefix):
 
 
 def elm_encoder_recursive_type_gen(items, prefix):
-    print(colored(f"{items}", "red"))
     if "type" not in items:
         return ""
     if items["type"] == "array":
