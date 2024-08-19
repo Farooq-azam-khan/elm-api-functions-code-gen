@@ -764,7 +764,6 @@ if __name__ == "__main__":
 
     fn_dict = generate_elm_api_function(route, method, apis['paths'][route][method])  
     print(colored(format_api_fn(fn_dict, method, ''), 'green'))
-    '''
     write_http_fns_file(
             create_api_functions(apis), 
             elm_types=elm_types, elm_encoder_fns=elm_encoder_fns,  
@@ -772,5 +771,4 @@ if __name__ == "__main__":
             open_api_version=apis["openapi"],
             info=apis['info']
     )
-    '''
 
