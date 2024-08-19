@@ -44,35 +44,6 @@ def get_type_alias_from_schema_ref(schema_ref: str) -> str:
     elm_type_alias = f'{type_prefix}{schema_ref.split("/")[-1]}'
     return elm_type_alias
 
-def add_encoder_to_fn(method_vals, elm_fn_definition_dict):
-    args = elm_fn_definition_dict["args"]
-    args_names = elm_fn_definition_dict["args_names"]
-    elm_request_encoder = ""
-    if "requestBody" in method_vals:
-        request_body = method_vals["requestBody"]
-        print("requestBody=", request_body)
-        schema_name = (
-            request_body.get("content", {})
-            .get("application/json", {})
-            .get("schema", {})
-            .get("$ref")
-        )
-        if schema_name:
-            elm_type_alias = get_type_alias_from_schema_ref(schema_name)
-            elm_encoder_fn_name = generate_elm_encoder_fn_name(elm_type_alias)
-            args = [elm_type_alias] + args
-            args_names = ["req_body"] + args_names
-            elm_request_encoder = f"{tab}{tab}|> HttpBuilder.withJsonBody ({elm_encoder_fn_name} req_body)"
-        else:
-            print(colored("Using generic encoder argument", "blue"))
-            args = ["E.Value"] + args
-            args_names = ["request_body_encoder"] + args_names
-            elm_request_encoder = (
-                f"{tab}{tab}|> HttpBuilder.withJsonBody request_body_encoder"
-            )
-    return args, args_names, elm_request_encoder
-
-
 def format_api_fn(
     elm_fn_definition_dict,
     method,
@@ -106,7 +77,7 @@ def add_url_parameters_to_fn(
     if "parameters" not in method_vals:
         return elm_route, args, args_names
 
-    parameters = method_vals["parameters"]
+    parameters = method_vals.get("parameters")
     route_path = route.split("/")
     print(f"\tparameters (total={len(parameters)}):", parameters)
     for rp in route_path:
@@ -118,31 +89,83 @@ def add_url_parameters_to_fn(
                         elm_route = elm_route.replace(
                             rp, f"\"++ {url_param['name']} ++\""
                         )
-                        args = ["String"] + args
-                        args_names = [url_param["name"]] + args_names
+                        args.append("String")
+                        args_names.append(url_param["name"])
     elm_route = elm_route.replace('++""', "").strip()
     return elm_route, args, args_names
 
 
+def add_encoder_to_fn(method_vals, elm_fn_definition_dict):
+    args = elm_fn_definition_dict["args"]
+    args_names = elm_fn_definition_dict["args_names"]
+    elm_request_encoder = ""
+    if "requestBody" in method_vals:
+        request_body = method_vals["requestBody"]
+        print("requestBody=", request_body)
+        schema_name = (
+            request_body.get("content", {})
+            .get("application/json", {})
+            .get("schema", {})
+            .get("$ref")
+        )
+        if schema_name:
+            elm_type_alias = get_type_alias_from_schema_ref(schema_name)
+            elm_encoder_fn_name = generate_elm_encoder_fn_name(elm_type_alias)
+            args = [elm_type_alias] + args
+            args_names = ["req_body"] + args_names
+            elm_request_encoder = f"{tab}{tab}|> HttpBuilder.withJsonBody ({elm_encoder_fn_name} req_body)"
+        else:
+            print(colored("Using generic encoder argument", "blue"))
+            args = ["E.Value"] + args
+            args_names = ["request_body_encoder"] + args_names
+            elm_request_encoder = (
+                f"{tab}{tab}|> HttpBuilder.withJsonBody request_body_encoder"
+            )
+    return args, args_names, elm_request_encoder
 
-def add_response_type(method_vals):
-    if "responses" in method_vals:
-        responses = method_vals["responses"]
+
+
+def add_response_type(method_vals: dict[Any, Any], elm_fn_definition_dict: dict[Any, Any]):
+    responses = method_vals.get('responses')
+
+    args = elm_fn_definition_dict["args"]
+    add_to_args = ['(FastApiWebData a -> msg)', 'D.Decoder a']
+    add_to_args_names = ['msg', 'decoder']
+
+    args_names = elm_fn_definition_dict["args_names"]
+    with_expect_const = f'{tab}{tab}|> HttpBuilder.withExpect\n{tab}{tab}{tab}'
+    elm_response_decoder = f"{with_expect_const}(expect_fast_api_response (RemoteData.fromResult >> msg) decoder)"
+    # TODO: add response types for other numbers 
+    if responses:
         print(f"responses ({len(responses.keys())})=")
         for resp_key, resp_val in method_vals["responses"].items():
+            is_success_resp_key = resp_key == '200' or resp_key == '201'
             print(colored(f"\t{resp_key}={resp_val}", "yellow"))
-            if "content" in resp_val:
-                response_content_schema = resp_val["content"]["application/json"][
-                    "schema"
-                ]
+            content = resp_val.get('content')
+            if content:
+                response_content_schema = content.get("application/json", {}).get("schema", {})
                 schemas_count = len(response_content_schema.keys())
                 if schemas_count == 0:
-                    print(
-                        colored(
+                    print(colored(
                             "\tWARN: schema response not defined",
                             "yellow",
-                        )
-                    )
+                        ))
+                elif is_success_resp_key:
+                    # TODO: test for recursive types as well
+                    elm_decoder_fn = convert_to_elm_decoder_type(response_content_schema) 
+                    elm_type_name = convert_to_elm_data_type(response_content_schema)
+                    if '$ref' in response_content_schema:
+                        elm_type_name = type_prefix+response_content_schema['$ref'].split('/')[-1]
+                        elm_decoder_fn = generate_elm_decoder_fn_name(elm_type_name)
+                    
+                    add_to_args = [f'(FastApiWebData {elm_type_name} -> msg)']
+                    add_to_args_names = ['msg']
+                    print(colored(f'\t using schema to add decoder function={elm_decoder_fn}', 'blue'))
+                    elm_response_decoder = f'{with_expect_const}(expect_fast_api_response (RemoteData.fromResult >> msg) {elm_decoder_fn})'
+
+    args += add_to_args 
+    args_names += add_to_args_names
+    return args, args_names, elm_response_decoder
 
 
 def generate_elm_api_function(
@@ -153,16 +176,14 @@ def generate_elm_api_function(
     print("keys=", method_vals.keys())
     elm_fn_definition_dict = {
         "fn_name": operation_id,
-        "args": ["(FastApiWebData a -> msg)", "D.Decoder a"],
-        "args_names": ["msg", "decoder"],
+        "args": [],
+        "args_names": [],
         "output_arg": "Cmd msg",
         "fn_body": {
             "route": '"' + route + '"',
             "http_method": method,
             "http_builder_fns": [
                 f"{tab}{tab}|> HttpBuilder.withTimeout 90000",
-                f"{tab}{tab}|> HttpBuilder.withExpect\n{tab}{tab}{tab}(expect_fast_api_response (RemoteData.fromResult >> msg) decoder)",
-                f"{tab}{tab}|> HttpBuilder.request",
             ],
         },
     }
@@ -185,12 +206,18 @@ def generate_elm_api_function(
         elm_route,
         route,
     )
-
-    add_response_type(method_vals)
     elm_fn_definition_dict["fn_body"]["route"] = elm_route
     elm_fn_definition_dict["args"] = args
     elm_fn_definition_dict["args_names"] = args_names
+    
+    args, args_names, elm_response_decoder = add_response_type(method_vals, elm_fn_definition_dict)
 
+    elm_fn_definition_dict["args"] = args
+    elm_fn_definition_dict["args_names"] = args_names
+    elm_fn_definition_dict['fn_body']['http_builder_fns'].append(elm_response_decoder)
+    elm_fn_definition_dict['fn_body']['http_builder_fns'].append(f"{tab}{tab}|> HttpBuilder.request")
+    
+    print(colored(elm_fn_definition_dict, 'red'))
     return elm_fn_definition_dict
 
 
@@ -516,7 +543,7 @@ def elm_encoder_recursive_type_gen(items, prefix):
     return f"{prefix} {elm_encoder_type} {close_bracket}"
 
 def elm_decoder_recursive_type_gen(items, prefix):
-    print(colored(f"{items}", "red"))
+    #print(colored(f"{items}", "red"))
     if "type" not in items:
         return ""
     if items["type"] == "array":
