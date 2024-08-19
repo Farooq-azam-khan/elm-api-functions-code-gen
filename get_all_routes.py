@@ -7,6 +7,8 @@ import json
 
 local_openapi_json = "http://localhost:8000/openapi.json"
 skip_non_api_routes = True
+open_square_bracket, close_square_braket = "[", "]"
+open_curly_bracket, close_curly_braket = "{", "}"
 # use_fast_api_web_data = True # TODO toggle fastapi webdata
 tab = "    "
 type_prefix = "Api"
@@ -122,35 +124,6 @@ def add_url_parameters_to_fn(
     elm_route = elm_route.replace('++""', "").strip()
     return elm_route, args, args_names
 
-
-"""
--- DECODER FUNCTIONS FORMAT
-ut_loc_decoder : D.Decoder UT_loc 
-ut_loc_decoder =
-    D.oneOf 
-        [ D.map UTArg0 D.string
-        , D.map UTArg1 D.int 
-        ]
-
-
-api_validationerror_decoder : D.Decoder ApiValidationError
-api_validationerror_decoder =
-    D.succeed ApiValidationError 
-        |> JDP.required "loc" (D.list ut_loc_decoder)
-        |> JDP.required "msg" (D.string)
-        |> JDP.required "type" (D.string)
-
-
-type alias ApiHTTPValidationError =
-    { detail: List ApiValidationError
-    }
-
-
-api_httpvalidationerror_decoder : D.Decoder ApiHTTPValidationError 
-api_httpvalidationerror_decoder = 
-    D.succeed ApiHTTPValidationError 
-        |> JDP.required "detail" (D.list api_validationerror_decoder)'
-"""
 
 
 def add_response_type(method_vals):
@@ -707,7 +680,62 @@ def generate_elm_type_and_encoder_fn(
     )
 
 
-open_square_bracket, close_square_braket = "[", "]"
+"""
+-- DECODER FUNCTIONS FORMAT
+ut_loc_decoder : D.Decoder UT_loc 
+ut_loc_decoder =
+    D.oneOf 
+        [ D.map UTArg0 D.string
+        , D.map UTArg1 D.int 
+        ]
+
+
+api_validationerror_decoder : D.Decoder ApiValidationError
+api_validationerror_decoder =
+    D.succeed ApiValidationError 
+        |> JDP.required "loc" (D.list ut_loc_decoder)
+        |> JDP.required "msg" (D.string)
+        |> JDP.required "type" (D.string)
+
+
+type alias ApiHTTPValidationError =
+    { detail: List ApiValidationError
+    }
+
+
+api_httpvalidationerror_decoder : D.Decoder ApiHTTPValidationError 
+api_httpvalidationerror_decoder = 
+    D.succeed ApiHTTPValidationError 
+        |> JDP.required "detail" (D.list api_validationerror_decoder)'
+"""
+
+
+def format_elm_decoder_fn(decoder_fn_def: dict[Any, Any]) -> str:
+    #fn_args = " -> ".join(decoder_fn_def["args"])
+    #fn_args_names = " ".join(decoder_fn_def["args_names"])
+    if decoder_fn_def["decoder_type"] == "type_alias":
+        decoder_list = f"\n{tab}  D.succeed TODO_DECODER_TYPE" + f"\n{tab}{tab}".join(
+            [
+                f"|> JDP.required_or_optional \"{prop_name}\" ({prop_val})"
+                for prop_name, prop_val in encoder_fn_def["fn_body"]["decoder_list"]
+            ]
+        )
+
+        return f"""
+{decoder_fn_def["fn_name"]} : {decoder_fn_def["args_output"]}
+{decoder_fn_def["fn_name"]} = 
+{tab} {decoder_list} 
+""".strip()
+
+    decoder_list = ", ".join(decoder_fn_def["fn_body"]["decoder_list"])
+    return f"""
+{decoder_fn_def["fn_name"]} : {decoder_fn_def["args_output"]}
+{decoder_fn_def["fn_name"]} = 
+    D.oneOf [{decoder_list}]
+
+    """.strip()
+
+
 
 
 def format_elm_encoder_fn(encoder_fn_def):
@@ -737,64 +765,6 @@ def format_elm_encoder_fn(encoder_fn_def):
     """.strip()
 
 
-def generate_elm_type_alias(
-    schema: dict[str, Any],
-) -> tuple[str, dict[Any, Any], list[str]]:
-    all_elm_union_types = []
-    # TODO: this will need to be a recursive function eventually
-    print(colored(f"schema keys={schema.keys()}", "yellow"))
-    print(colored(f'required={schema.get("required")}', "yellow"))
-    required: set[str] = set([k for k, _ in schema["properties"].items()])
-    if "required" in schema:
-        required = set(schema["required"])
-
-    elm_type_args_dict = {}
-    for prop_name, prop_metadata in schema["properties"].items():
-        is_required = prop_name in required
-        print(prop_name, "===", prop_metadata)
-        elm_prop_name = generate_elm_prop_name(prop_name)
-        if "type" in prop_metadata:
-            prop_type = prop_metadata["type"]
-            elm_prop_type = convert_to_elm_data_type(prop_type)
-
-            if prop_type == "array":
-                if "type" in prop_metadata["items"]:
-                    elm_recursed_type_gen = recursive_type_gen(
-                        prop_metadata["items"], prefix="List ("
-                    )
-                    # list_type = convert_to_elm_data_type(prop_metadata["items"]["type"])
-                    elm_prop_type = elm_recursed_type_gen
-                elif "anyOf" in prop_metadata["items"]:
-                    elm_union_type_name = f"UT_{elm_prop_name}"
-                    # TODO: generate a union type and insert it into type array
-                    union_types = []
-                    for i, ut in enumerate(prop_metadata["items"]["anyOf"]):
-                        if "type" in ut:
-                            elm_ut_arg = convert_to_elm_data_type(ut["type"])
-                            union_types.append(f"UTArg{i} {elm_ut_arg}")
-
-                    union_type_gen = f"type {elm_union_type_name}\n{tab}= "
-                    union_type_gen += f"\n{tab}| ".join(union_types)
-                    all_elm_union_types.append(union_type_gen)
-                    elm_prop_type = f"List {elm_union_type_name}"
-
-                elif "$ref" in prop_metadata["items"]:
-                    # assume type alias for ref is created - might not even need topological sort - elm compiler could handle it for me
-                    reference = prop_metadata["items"]["$ref"].split("/")[-1]
-                    ref_type_name = f"{type_prefix}{reference}"
-                    elm_prop_type = f"List {ref_type_name}"
-        elif "$ref" in prop_metadata:
-            reference = prop_metadata["$ref"].split("/")[-1]
-            ref_type_name = f"{type_prefix}{reference}"
-            elm_prop_type = f"{ref_type_name}"
-        if is_required:
-            elm_type_args_dict[elm_prop_name] = elm_prop_type
-        else:
-            elm_type_args_dict[elm_prop_name] = f"Maybe ({elm_prop_type})"
-    elm_type_name = f'{type_prefix}{schema["title"]}'
-    return elm_type_name, elm_type_args_dict, all_elm_union_types
-
-
 def format_elm_types(
     elm_type_name: str,
     elm_type_args_dict: dict[str, Any],
@@ -816,7 +786,7 @@ def format_elm_types(
     return f"""{all_elm_union_types_str}\n\ntype alias {elm_type_name} =\n{tab}{elm_type_args}\n""".strip()
 
 
-def generate_all_elm_types(schemas: dict[Any, Any]) -> Any:
+def generate_all_elm_types(schemas: dict[Any, Any]) -> tuple[list[Any], list[Any], list[Any]]:
     print(colored("Assume every property is required", "red"))
     print(
         colored(
@@ -826,6 +796,7 @@ def generate_all_elm_types(schemas: dict[Any, Any]) -> Any:
     )
     all_elm_type_alias: list[str] = []
     all_elm_encoder_fns: list[str] = []
+    all_elm_decoder_fns: list[str] = [] 
     for schema_name, schema_props in schemas.items():
         print(colored(f"{schema_name=}", "yellow"))
         (
@@ -834,6 +805,7 @@ def generate_all_elm_types(schemas: dict[Any, Any]) -> Any:
             all_elm_union_types,
             elm_encoder_fn,
             all_elm_union_encoders,
+            elm_decoder_fn, all_elm_union_decoders,
         ) = generate_elm_type_and_encoder_fn(schema_props)
         elm_type_alias = format_elm_types(
             elm_type_name, elm_type_props_dict, all_elm_union_types
@@ -842,10 +814,14 @@ def generate_all_elm_types(schemas: dict[Any, Any]) -> Any:
         for ute in all_elm_union_encoders:
             all_elm_encoder_fns.append(format_elm_encoder_fn(ute))
 
+        all_elm_decoder_fns.append(format_elm_decoder_fn(elm_decoder_fn))
+        for utd in all_elm_union_decoders:
+            all_elm_decoder_fns.append(format_elm_decoder_fn(utd))
+
         print(colored(elm_type_alias, "green"))
         print("-" * 20)
         all_elm_type_alias.append(elm_type_alias)
-    return all_elm_type_alias, all_elm_encoder_fns
+    return all_elm_type_alias, all_elm_encoder_fns, all_elm_decoder_fns
 
 
 if __name__ == "__main__":
