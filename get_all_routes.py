@@ -3,22 +3,42 @@ from typing import Any
 import click
 import requests
 from termcolor import colored
+import json 
 
 local_openapi_json = "http://localhost:8000/openapi.json"
-
-
-def get_openapi_config(
-    open_api_json_req_url: str = local_openapi_json,
-) -> dict[Any, Any]:
-    resp = requests.get(open_api_json_req_url)
-    apis = resp.json()
-    return apis
-
-
 skip_non_api_routes = True
 # use_fast_api_web_data = True # TODO toggle fastapi webdata
 tab = "    "
 type_prefix = 'Api'
+python_type_to_elm_encoder_type = {
+    "string": "E.string",
+    "array": "E.list TODO:ref_encoder",
+    "boolean": "E.bool",
+    "integer": "E.int",
+    "number": "E.float",
+}
+
+python_type_to_elm_decoder_type = {
+    "string": "D.string",
+    "array": "D.list (D.TODO)", 
+    "boolean": "D.bool",
+    "integer": "D.int",
+    "number": "D.float",
+}
+
+
+def get_openapi_config(
+    open_api_json_req_url: str = local_openapi_json,
+    write_file_loc: str = './codegen/openapi.json'
+) -> dict[Any, Any]:
+    resp = requests.get(open_api_json_req_url)
+    apis = resp.json()
+    with open(write_file_loc, 'w') as f: 
+        f.write(json.dumps(apis, indent=2))
+    return apis
+
+
+
 def get_type_alias_from_schema_ref(schema_ref:str)->str:
     elm_type_alias = f'{type_prefix}{schema_ref.split("/")[-1]}'
     return elm_type_alias 
@@ -125,7 +145,7 @@ api_httpvalidationerror_decoder =
     D.succeed ApiHTTPValidationError 
         |> JDP.required "detail" (D.list api_validationerror_decoder)'
 '''
-def create_response_type(method_vals):
+def add_response_type(method_vals):
     if "responses" in method_vals:
         responses = method_vals["responses"]
         print(f"responses ({len(responses.keys())})=")
@@ -180,7 +200,7 @@ def generate_elm_api_function(route: str, method: str, method_vals: dict[Any, An
     )
 
     
-    create_response_type(method_vals)
+    add_response_type(method_vals)
     elm_fn_definition_dict["fn_body"]["route"] = elm_route
     elm_fn_definition_dict['args'] = args 
     elm_fn_definition_dict['args_names'] = args_names
@@ -222,65 +242,8 @@ def create_api_functions(apis: dict[Any, Any]):
     return elm_functions
 
 
-python_type_to_elm_encoder_type = {
-    "string": "E.string",
-    "array": "E.list TODO:ref_encoder",
-    "boolean": "E.bool",
-    "integer": "E.int",
-    "number": "E.float",
-}
 
 
-def write_encoders(apis):
-    encoder_fns = {}
-    for tpe, tpe_props in apis["components"]["schemas"].items():
-        if tpe_props["type"] == "object":
-            elm_properties = []
-            print("-" * 25)
-            print(colored(tpe, "red"))
-            print(f"{tpe_props.keys()=}")
-            if "required" in tpe_props:
-                print(f'required={tpe_props["required"]}')
-            print(f'title={tpe_props["title"]}')
-            print("properties:", tpe_props["properties"])
-            for prop_name, prop_type in tpe_props["properties"].items():
-                if "type" in prop_type:
-                    python_type = prop_type["type"]
-                    if python_type == "array":
-                        if "items" in prop_type:
-                            print(colored(prop_type["items"], "yellow"))
-                    else:
-                        encoder_type = python_type
-                        if python_type not in python_type_to_elm_encoder_type:
-                            print(
-                                colored(
-                                    f"{python_type} not in python_type_to_elm_encoder_type",
-                                    "red",
-                                )
-                            )
-                        else:
-                            encoder_type = python_type_to_elm_encoder_type[python_type]
-                        elm_prop_tupe_str = f'("{prop_name}", {encoder_type} TODO:VAR)'
-                else:
-                    elm_prop_tupe_str = (
-                        f'("{prop_name}", {encoder_type} TODO:ref_encoder)'
-                    )
-
-                elm_properties.append(elm_prop_tupe_str)
-            elm_schema_encoder_str = f""" 
-dummy_encoder : E.Value
-dummy_encoder = E.object [{", ".join(elm_properties)}]
-""".strip()
-            print(colored(elm_schema_encoder_str, "green"))
-    return encoder_fns
-
-
-"""
-(E.object [ ( "query", E.string query ) ]
-{'properties': {'query': {'type': 'string', 'title': 'Query'}}, 'type': 'object', 'required': ['query'], 'title': 'DBQuery'}
-class DBQuery(BaseModel):
-    query: str
-"""
 
 elm_expect_fastpai_fn_and_types = """
 type FastApiHttpError
