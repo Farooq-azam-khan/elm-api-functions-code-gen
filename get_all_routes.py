@@ -155,7 +155,6 @@ def add_response_type(method_vals: dict[Any, Any], elm_fn_definition_dict: dict[
                     elm_decoder_fn = convert_to_elm_decoder_type(response_content_schema) 
                     elm_type_name = recursive_type_gen(response_content_schema, open_bracket)
                     if '$ref' in response_content_schema:
-                        #elm_type_name = type_prefix+response_content_schema['$ref'].split('/')[-1]
                         elm_decoder_fn = generate_elm_decoder_fn_name(elm_type_name)
                     
                     add_to_args = [f'(FastApiWebData ({elm_type_name}) -> msg)']
