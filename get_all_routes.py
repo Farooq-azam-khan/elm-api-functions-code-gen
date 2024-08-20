@@ -4,6 +4,7 @@ import click
 import requests
 from termcolor import colored
 import json
+import pathlib 
 
 local_openapi_json = "http://localhost:8000/openapi.json"
 skip_non_api_routes = True
@@ -12,27 +13,15 @@ open_curly_bracket, close_curly_braket = "{", "}"
 # use_fast_api_web_data = True # TODO toggle fastapi webdata
 tab = "    "
 type_prefix = "Api"
-python_type_to_elm_encoder_type = {
-    "string": "E.string",
-    "array": "E.list TODO:ref_encoder",
-    "boolean": "E.bool",
-    "integer": "E.int",
-    "number": "E.float",
-}
-
-python_type_to_elm_decoder_type = {
-    "string": "D.string",
-    "array": "D.list (D.TODO)",
-    "boolean": "D.bool",
-    "integer": "D.int",
-    "number": "D.float",
-}
-
 
 def get_openapi_config(
     open_api_json_req_url: str = local_openapi_json,
     write_file_loc: str = "./codegen/openapi.json",
 ) -> dict[Any, Any]:
+    if pathlib.Path(write_file_loc).is_file():
+        with open(write_file_loc, 'r') as f: 
+            return json.loads(f.read())
+
     resp = requests.get(open_api_json_req_url)
     apis = resp.json()
     with open(write_file_loc, "w") as f:
@@ -43,28 +32,6 @@ def get_openapi_config(
 def get_type_alias_from_schema_ref(schema_ref: str) -> str:
     elm_type_alias = f'{type_prefix}{schema_ref.split("/")[-1]}'
     return elm_type_alias
-
-def format_api_fn(
-    elm_fn_definition_dict,
-    method,
-    elm_request_encoder,
-):
-    elm_fn_definition = f'{elm_fn_definition_dict["fn_name"]} : {" -> ".join(elm_fn_definition_dict["args"])} -> {elm_fn_definition_dict["output_arg"]}'
-    elm_fn_arguments = f'{elm_fn_definition_dict["fn_name"]} {" ".join(elm_fn_definition_dict["args_names"])} ='
-    elm_route = elm_fn_definition_dict["fn_body"]["route"]
-    method = elm_fn_definition_dict["fn_body"]["http_method"]
-
-    elm_fn_body_http_fns = "\n".join(
-        elm_fn_definition_dict["fn_body"]["http_builder_fns"]
-    )
-    formatted_fn_output = f"""
-{elm_fn_definition}
-{elm_fn_arguments}
-{tab}{elm_route}
-{tab}{tab}|> HttpBuilder.{method}
-{elm_fn_body_http_fns}
-""".strip()
-    return formatted_fn_output
 
 
 def add_url_parameters_to_fn(
@@ -99,28 +66,29 @@ def add_encoder_to_fn(method_vals, elm_fn_definition_dict):
     args = elm_fn_definition_dict["args"]
     args_names = elm_fn_definition_dict["args_names"]
     elm_request_encoder = ""
-    if "requestBody" in method_vals:
-        request_body = method_vals["requestBody"]
-        print("requestBody=", request_body)
-        schema_name = (
+
+    request_body = method_vals.get("requestBody",{})
+    #print("requestBody=", request_body)
+    schema_name = (
             request_body.get("content", {})
             .get("application/json", {})
-            .get("schema", {})
-            .get("$ref")
+            .get("schema")
         )
-        if schema_name:
-            elm_type_alias = get_type_alias_from_schema_ref(schema_name)
-            elm_encoder_fn_name = generate_elm_encoder_fn_name(elm_type_alias)
-            args = [elm_type_alias] + args
-            args_names = ["req_body"] + args_names
-            elm_request_encoder = f"{tab}{tab}|> HttpBuilder.withJsonBody ({elm_encoder_fn_name} req_body)"
-        else:
-            print(colored("Using generic encoder argument", "blue"))
-            args = ["E.Value"] + args
-            args_names = ["request_body_encoder"] + args_names
-            elm_request_encoder = (
-                f"{tab}{tab}|> HttpBuilder.withJsonBody request_body_encoder"
-            )
+
+    if schema_name:
+        elm_function_arg_type = recursive_type_gen(schema_name, '')
+        elm_encoder_fn_name = elm_encoder_recursive_type_gen(schema_name, '')
+        print(colored(f'{elm_function_arg_type=}\n{elm_encoder_fn_name}', 'blue'))
+        args = [elm_function_arg_type] + args
+        args_names = ["req_body"] + args_names
+        elm_request_encoder = f"{tab}{tab}|> HttpBuilder.withJsonBody ({elm_encoder_fn_name} req_body)"
+    elif len(request_body.keys()) > 0:
+        print(colored(f"\tUsing generic encoder argument\n\t{request_body=}", "blue"))
+        args = ["E.Value"] + args
+        args_names = ["request_body_encoder"] + args_names
+        elm_request_encoder = (
+            f"{tab}{tab}|> HttpBuilder.withJsonBody request_body_encoder"
+        )
     return args, args_names, elm_request_encoder
 
 
@@ -141,27 +109,25 @@ def add_response_type(method_vals: dict[Any, Any], elm_fn_definition_dict: dict[
         for resp_key, resp_val in method_vals["responses"].items():
             is_success_resp_key = resp_key == '200' or resp_key == '201'
             print(colored(f"\t{resp_key}={resp_val}", "yellow"))
-            content = resp_val.get('content')
-            if content:
-                response_content_schema = content.get("application/json", {}).get("schema", {})
-                schemas_count = len(response_content_schema.keys())
-                if schemas_count == 0:
-                    print(colored(
-                            "\tWARN: schema response not defined",
-                            "yellow",
-                        ))
-                elif is_success_resp_key:
-                    # TODO: test for recursive types as well
-                    elm_decoder_fn = convert_to_elm_decoder_type(response_content_schema) 
-                    elm_type_name = recursive_type_gen(response_content_schema, open_bracket)
-                    if '$ref' in response_content_schema:
-                        elm_decoder_fn = generate_elm_decoder_fn_name(elm_type_name)
-                    
-                    add_to_args = [f'(FastApiWebData ({elm_type_name}) -> msg)']
-                    add_to_args_names = ['msg']
-                    print(colored(f'{"-"*10}\n{elm_type_name}\n{"-"*10}\n', 'red'))
-                    print(colored(f'\t using schema to add decoder function={elm_decoder_fn}', 'blue'))
-                    elm_response_decoder = f'{with_expect_const}(expect_fast_api_response (RemoteData.fromResult >> msg) {elm_decoder_fn})'
+            response_schema = resp_val.get('content', {}).get("application/json", {}).get("schema", {})
+            schemas_count = len(response_schema.keys())
+            if schemas_count == 0:
+                print(colored(
+                        "\tWARN: schema response not defined",
+                        "red",
+                    ))
+            elif is_success_resp_key:
+                # TODO: test for recursive types as well
+                elm_decoder_fn = elm_decoder_recursive_type_gen(response_schema, open_bracket)#convert_to_elm_decoder_type(response_schema) 
+                elm_type_name = recursive_type_gen(response_schema, open_bracket)
+                #if '$ref' in response_schema:
+                #    elm_decoder_fn = generate_elm_decoder_fn_name(elm_type_name)
+                
+                add_to_args = [f'(FastApiWebData ({elm_type_name}) -> msg)']
+                add_to_args_names = ['msg']
+                print(colored(f'{"-"*10}\n{elm_type_name}\n{"-"*10}\n', 'red'))
+                print(colored(f'\t using schema to add decoder function={elm_decoder_fn}', 'blue'))
+                elm_response_decoder = f'{with_expect_const}(expect_fast_api_response (RemoteData.fromResult >> msg) {elm_decoder_fn})'
 
     args += add_to_args 
     args_names += add_to_args_names
@@ -183,6 +149,7 @@ def generate_elm_api_function(
             "route": '"' + route + '"',
             "http_method": method,
             "http_builder_fns": [
+                f"{tab}{tab}|> HttpBuilder.{method}",
                 f"{tab}{tab}|> HttpBuilder.withTimeout 90000",
             ],
         },
@@ -217,11 +184,30 @@ def generate_elm_api_function(
     elm_fn_definition_dict['fn_body']['http_builder_fns'].append(elm_response_decoder)
     elm_fn_definition_dict['fn_body']['http_builder_fns'].append(f"{tab}{tab}|> HttpBuilder.request")
     
-    print(colored(elm_fn_definition_dict, 'red'))
     return elm_fn_definition_dict
 
+def format_api_fn(
+    elm_fn_definition,
+    method,
+):
+    elm_fn_declaration = f'{elm_fn_definition["fn_name"]} : {" -> ".join(elm_fn_definition["args"])} -> {elm_fn_definition["output_arg"]}'
+    elm_fn_arguments = f'{elm_fn_definition["fn_name"]} {" ".join(elm_fn_definition["args_names"])} ='
+    elm_route = elm_fn_definition["fn_body"]["route"]
+    method = elm_fn_definition["fn_body"]["http_method"]
 
-def create_api_functions(apis: dict[Any, Any]):
+    elm_fn_body_http_fns = "\n".join(
+        elm_fn_definition["fn_body"]["http_builder_fns"]
+    )
+    formatted_fn_output = f"""
+{elm_fn_declaration}
+{elm_fn_arguments}
+{tab}{elm_route}
+{elm_fn_body_http_fns}
+""".strip()
+    return formatted_fn_output
+
+
+def generate_all_elm_api_functions(apis: dict[Any, Any]):
     print(colored("Assuming everyting is content-type: application/json", "red"))
     print(
         colored(
@@ -243,7 +229,6 @@ def create_api_functions(apis: dict[Any, Any]):
             formatted_fn_output = format_api_fn(
                 elm_fn_definition,
                 method,
-                "",
             )
 
             print(colored(formatted_fn_output, "green"))
@@ -426,11 +411,13 @@ def cli():
 def write_elm_fns(url):
     try:
         apis = get_openapi_config(url)
-        elm_functions = create_api_functions(apis)
+        elm_types, elm_encoder_fns, elm_decoder_fns = generate_all_elm_types(apis["components"]["schemas"])
         write_http_fns_file(
-            elm_functions,
-            output_file="./codegen/ApiGen.elm",
+            generate_all_elm_api_functions(apis), 
+            elm_types=elm_types, elm_encoder_fns=elm_encoder_fns, elm_decoder_fns=elm_decoder_fns,
+            output_file="./codegen/src/ApiGen.elm",
             open_api_version=apis["openapi"],
+            info=apis['info']
         )
         return apis, elm_functions
     except requests.exceptions.ConnectionError:
@@ -514,11 +501,14 @@ def generate_elm_prop_name(prop_name):
         return f"{prop_name}_"
     return prop_name
 
+def generate_elm_type_name_from_ref(ref: str) -> str:
+    return type_prefix+ref.split('/')[-1]
 # e.g. List String
 # e.g. List (List String) or List (List (String))
-def recursive_type_gen(items, prefix):
-    if '$ref' in items: 
-        return type_prefix+items['$ref'].split('/')[-1]
+def recursive_type_gen(items: dict[Any, Any], prefix: str) -> str:
+    print(colored(f'rec fn {items=}', 'blue'))
+    if '$ref' in items:
+        return prefix+generate_elm_type_name_from_ref(items['$ref'])
     if items["type"] == "array":
         return (
             recursive_type_gen(items["items"], prefix=prefix + f"List {open_bracket}")
@@ -530,8 +520,9 @@ def recursive_type_gen(items, prefix):
 
 
 def elm_encoder_recursive_type_gen(items, prefix):
-    if "type" not in items:
-        return ""
+    print(colored(items, 'red'))
+    if "$ref" in items:
+        return prefix+generate_elm_encoder_fn_name(generate_elm_type_name_from_ref(items['$ref'])) 
     if items["type"] == "array":
         return (
             elm_encoder_recursive_type_gen(
@@ -544,8 +535,8 @@ def elm_encoder_recursive_type_gen(items, prefix):
 
 def elm_decoder_recursive_type_gen(items, prefix):
     #print(colored(f"{items}", "red"))
-    if "type" not in items:
-        return ""
+    if '$ref' in items: 
+        return prefix+generate_elm_decoder_fn_name(generate_elm_type_name_from_ref(items['$ref']))
     if items["type"] == "array":
         return (
             elm_decoder_recursive_type_gen(
@@ -927,17 +918,22 @@ def generate_all_elm_types(schemas: dict[Any, Any]) -> tuple[list[Any], list[Any
 
 if __name__ == "__main__":
     apis = get_openapi_config(local_openapi_json)
+    elm_types, elm_encoder_fns, elm_decoder_fns = generate_all_elm_types(apis["components"]["schemas"])
+    route = '/api/db/question/{q_uuid}/record-metas'
+    method ='put' 
+    fn = generate_elm_api_function(route, method, apis['paths'][route][method])
+    print(colored(format_api_fn(fn, method), 'green'))
     '''a,b,c,d,e,f,g = generate_elm_type_and_encoder_decoder_fn(schema=apis['components']['schemas']['OptionalTest'])
     print('union types decoder')
     print(colored('\n\n'.join([format_elm_decoder_fn(d) for d in g]), 'green'))
     print('type alias decoder')
     print(colored(format_elm_decoder_fn(f), 'green'))'''
-    elm_types, elm_encoder_fns, elm_decoder_fns = generate_all_elm_types(apis["components"]["schemas"])
+    '''
 
     write_http_fns_file(
-        create_api_functions(apis), 
+        generate_all_elm_api_functions(apis), 
         elm_types=elm_types, elm_encoder_fns=elm_encoder_fns, elm_decoder_fns=elm_decoder_fns,
         output_file="./codegen/src/ApiGen.elm",
         open_api_version=apis["openapi"],
         info=apis['info']
-    )
+    )'''
