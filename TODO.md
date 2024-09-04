@@ -5,7 +5,7 @@
     * generated types can have encoder and decoder 
     * these encoder and decoder will be used in conjuction with api functions. 
 * create an example directory with a very complex and thourough api backend
-    * example 1: cat facts api file    
+    * example 1: cat facts api file (https://github.com/openapi-ts/openapi-typescript/blob/main/packages/openapi-fetch/examples/nextjs/lib/api/v1.d.ts) 
     * uses basic get 
     * uses get with query parameters 
     * uses post 
