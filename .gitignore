@@ -1,3 +1,4 @@
 codegen
+build
 __pycache__
 *.egg-info*
