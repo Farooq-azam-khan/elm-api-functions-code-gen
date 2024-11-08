@@ -175,7 +175,7 @@ def generate_elm_api_function(
     )
     if len(elm_request_encoder) > 0:
         elm_fn_definition_dict["fn_body"]["http_builder_fns"].insert(
-            0, elm_request_encoder
+            1, elm_request_encoder
         )
     elm_fn_definition_dict["args"] = args
     elm_fn_definition_dict["args_names"] = args_names
@@ -533,7 +533,10 @@ def recursive_type_gen(items: dict[Any, Any], prefix: str) -> str:
     if "$ref" in items:
         return prefix + generate_elm_type_name_from_ref(items["$ref"])
     if items["type"] == "array":
-        return recursive_type_gen(items["items"], prefix=prefix + "List ")
+        return (
+            recursive_type_gen(items["items"], prefix=prefix + f"List {open_bracket}")
+            + close_bracket
+        )
 
     elm_prop_type = convert_to_elm_data_type(items["type"])
     return f"{prefix} {open_bracket} {elm_prop_type} {close_bracket}"
@@ -548,8 +551,9 @@ def elm_encoder_recursive_type_gen(items, prefix):
     if items["type"] == "array":
         return (
             elm_encoder_recursive_type_gen(
-                items["items"], prefix=prefix + "E.list "
+                items["items"], prefix=prefix + f"E.list {open_bracket}"
             )
+            + close_bracket
         )
     elm_encoder_type = convert_to_elm_encoder_type(items["type"])
     return f"{prefix} {open_bracket} {elm_encoder_type} {close_bracket}"
@@ -562,7 +566,12 @@ def elm_decoder_recursive_type_gen(items, prefix):
             generate_elm_type_name_from_ref(items["$ref"])
         )
     if items["type"] == "array":
-        return elm_decoder_recursive_type_gen(items["items"], prefix=prefix + "D.list ")
+        return (
+            elm_decoder_recursive_type_gen(
+                items["items"], prefix=prefix + f"D.list {open_bracket}"
+            )
+            + close_bracket
+        )
     elm_decoder_type = convert_to_elm_decoder_type(items["type"])
     return f"{prefix} {open_bracket} {elm_decoder_type} {close_bracket}"
 
@@ -689,8 +698,8 @@ def generate_elm_type_and_encoder_decoder_fn(
             if prop_type == "array":
                 if "type" in prop_metadata["items"]:
                     elm_recursed_type_gen = recursive_type_gen(
-                        prop_metadata["items"], prefix="List "
-                    )
+                        prop_metadata["items"], prefix=f"List {open_bracket}"
+                    ) + close_bracket
                     elm_rtg_encoder = (
                         elm_encoder_recursive_type_gen(
                             prop_metadata["items"], prefix=f"E.list {open_bracket}"
